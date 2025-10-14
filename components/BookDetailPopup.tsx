@@ -10,6 +10,7 @@ import {
   Alert,
   StyleSheet,
   Linking,
+  TouchableWithoutFeedback,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { supabase } from "../lib/supabase";
@@ -55,7 +56,8 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   const [book, setBook] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
-  const TARGET_LANGUAGE_ID = '4846240843956224'; 
+  const [languagesList, setLanguagesList] = useState<{ id: string; name: string }[]>([]);
+
   const handleRead = () => {
     const url = book?.web_book_uuid ? `https://your-domain.com/read/${book.web_book_uuid}` : null;
     if (url) {
@@ -74,78 +76,83 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
     }
   };
 
-  // ✅ Chỉ sửa phần này
+  const fetchBookByLanguage = async (language_id: string) => {
+    if (!bookId) return;
+    setLoading(true);
+    try {
+      const { data: bookData, error: bookError } = await supabase
+        .from("books")
+        .select("*")
+        .eq("book_uuid", bookId)
+        .eq("language_id", language_id)
+        .single();
+
+      if (bookError) throw bookError;
+
+      const { data: catData } = await supabase
+        .from("book_categories")
+        .select("categories(name)")
+        .eq("book_id", bookData.id);
+
+      const { data: contentData } = await supabase
+        .from("book_content")
+        .select("pdf_url, epub_url")
+        .eq("book_id", bookData.id)
+        .maybeSingle();
+
+      const categories =
+        catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
+
+      setBook({
+        ...bookData,
+        categories,
+        pdf_url: contentData?.pdf_url || null,
+        epub_url: contentData?.epub_url || null,
+      });
+    } catch (err: any) {
+      console.error("❌ Lỗi fetchBookByLanguage:", err);
+      Alert.alert("Lỗi tải dữ liệu", "Không thể tải chi tiết sách.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!visible || !bookId) {
       setBook(null);
+      setLanguagesList([]);
       setSelectedLanguage(null);
       return;
     }
 
     const fetchBook = async () => {
       setLoading(true);
-
       try {
-        // 1️⃣ Lấy thông tin sách chính
-        const { data: bookData, error: bookError } = await supabase
+        const { data: langRecords, error: langError } = await supabase
           .from("books")
-          .select("*")
-          .eq("book_uuid", bookId)
-          .eq("language_id", TARGET_LANGUAGE_ID)
-          .single()
-          .limit(1);
+          .select("language_id, languages(name)")
+          .eq("book_uuid", bookId);
 
-        if (bookError?.code === "PGRST116") {
+        if (langError) throw langError;
+
+        const list =
+          langRecords?.map((r: any) => ({
+            id: r.language_id,
+            name: r.languages?.name || "Unknown",
+          })) ?? [];
+
+        setLanguagesList(list);
+
+        const defaultLang = list[0]?.id;
+        if (defaultLang) {
+          setSelectedLanguage(defaultLang);
+          await fetchBookByLanguage(defaultLang);
+        } else {
           setBook(null);
-          return;
         }
-        if (bookError) throw bookError;
-
-        // 2️⃣ Lấy danh sách ngôn ngữ
-        const { data: langData, error: langError } = await supabase
-          .from("book_languages")
-          .select("languages(name)")
-          .eq("book_id", bookData.id);
-
-        if (langError) console.warn("⚠️ Lỗi fetch languages:", langError.message);
-
-        // 3️⃣ Lấy danh mục thể loại
-        const { data: catData, error: catError } = await supabase
-          .from("book_categories")
-          .select("categories(name)")
-          .eq("book_id", bookData.id);
-
-        if (catError) console.warn("⚠️ Lỗi fetch categories:", catError.message);
-
-        // 4️⃣ Lấy link PDF/EPUB
-        const { data: contentData, error: contentError } = await supabase
-          .from("book_content")
-          .select("pdf_url, epub_url")
-          .eq("book_id", bookData.id)
-          .maybeSingle();
-
-        if (contentError) console.warn("⚠️ Lỗi fetch content:", contentError.message);
-
-        const languages =
-          langData?.map((l: any) => l.languages?.name).filter(Boolean) ?? [];
-        const categories =
-          catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
-
-        setBook({
-          ...bookData,
-          languages,
-          categories,
-          pdf_url: contentData?.pdf_url || null,
-          epub_url: contentData?.epub_url || null,
-        });
-
-        setSelectedLanguage(languages[0] ?? null);
       } catch (err: any) {
-        console.error("❌ Lỗi fetch tổng:", err);
-        if (err.code !== "PGRST116") {
-          Alert.alert("Lỗi tải dữ liệu", "Không thể tải chi tiết sách.");
-        }
-        setBook(null);
+        console.error("❌ Lỗi fetchBook:", err);
+        Alert.alert("Lỗi tải dữ liệu", "Không thể tải chi tiết sách.");
       } finally {
         setLoading(false);
       }
@@ -153,7 +160,12 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 
     fetchBook();
   }, [visible, bookId]);
-  // ✅ Hết phần sửa
+
+  useEffect(() => {
+    if (selectedLanguage && bookId) {
+      fetchBookByLanguage(selectedLanguage);
+    }
+  }, [selectedLanguage]);
 
   if (!visible || !bookId) return null;
 
@@ -162,121 +174,98 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
-      <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={onClose}>
-        <View onStartShouldSetResponder={() => true} style={styles.popupContainer}>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>✕</Text>
-          </TouchableOpacity>
+      <View style={styles.overlay}>
+        {/* phần popup chính – chặn click ra ngoài */}
+        <TouchableWithoutFeedback>
+          <View style={styles.popupContainer}>
+            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+              <Text style={styles.closeButtonText}>✕</Text>
+            </TouchableOpacity>
 
-          {loading ? (
-            <View style={styles.loadingView}>
-              <ActivityIndicator size="large" color="#4CAF50" />
-              <Text style={styles.loadingText}>Đang tải dữ liệu...</Text>
-            </View>
-          ) : !book ? (
-            <View style={styles.errorView}>
-              <View style={styles.placeholderImage} />
-              <Text style={styles.errorText}>
-                Không tìm thấy thông tin sách cho ID: {bookId}. Vui lòng kiểm tra lại ID sách trong
-                Database.
-              </Text>
-              <TouchableOpacity onPress={onClose} style={styles.errorCloseButton}>
-                <Text style={styles.errorCloseButtonText}>Đóng</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <ScrollView contentContainerStyle={styles.scrollViewContent}>
-              <Image
-                source={{ uri: displayBook.cover_image }}
-                style={styles.coverImage}
-                resizeMode="contain"
-              />
-
-              <Text style={styles.title}>{displayBook.title}</Text>
-              <Text style={styles.author}>{displayBook.author}</Text>
-
-              <View style={styles.actionRow}>
-                <View style={styles.pickerContainer}>
-                  <Picker
-                    selectedValue={selectedLanguage}
-                    onValueChange={(itemValue) => setSelectedLanguage(itemValue)}
-                    style={styles.languagePicker}
-                    dropdownIconColor="#333"
-                    enabled={displayBook.languages.length > 0}
-                  >
-                    {displayBook.languages.length === 0 ? (
-                      <Picker.Item label="English" value="English" />
-                    ) : (
-                      displayBook.languages.map((lang: string) => (
-                        <Picker.Item key={lang} label={lang} value={lang} />
-                      ))
-                    )}
-                  </Picker>
-                </View>
-
-                <TouchableOpacity style={styles.likeButton}>
-                  <Text style={{ fontSize: 20 }}>♡</Text>
+            {loading ? (
+              <View style={styles.loadingView}>
+                <ActivityIndicator size="large" color="#4CAF50" />
+                <Text style={styles.loadingText}>Đang tải dữ liệu...</Text>
+              </View>
+            ) : !book ? (
+              <View style={styles.errorView}>
+                <View style={styles.placeholderImage} />
+                <Text style={styles.errorText}>
+                  Không tìm thấy thông tin sách cho ID: {bookId}.
+                </Text>
+                <TouchableOpacity onPress={onClose} style={styles.errorCloseButton}>
+                  <Text style={styles.errorCloseButtonText}>Đóng</Text>
                 </TouchableOpacity>
               </View>
-
-              <View style={styles.readDownloadRow}>
-                <TouchableOpacity
-                  style={[styles.readButton, !displayBook.web_book_uuid && { opacity: 0.5 }]}
-                  onPress={handleRead}
-                  disabled={!displayBook.web_book_uuid}
-                >
-                  <Text style={styles.readButtonText}>📖 Read</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.downloadButton, !hasDownloadLink && { opacity: 0.5 }]}
-                  onPress={handleDownload}
-                  disabled={!hasDownloadLink}
-                >
-                  <Text style={styles.downloadButtonText}>⬇</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.bookDescription}>
-                {displayBook.description || "Không có mô tả."}
-              </Text>
-
-              <View style={styles.infoGrid}>
-                <InfoItem label="Reading Level" value={displayBook.reading_level} />
-                <InfoItem label="Pages" value={displayBook.pages} />
-                <InfoItem label="Available Languages" value={displayBook.languages.length} />
-              </View>
-
-              <View style={styles.detailSection}>
-                <DetailRow label="Publisher" value={displayBook.publisher} />
-                <DetailRow label="Illustrator" value={displayBook.illustrator} />
-                <DetailRow label="Editor" value={displayBook.editor} />
-                <DetailRow
-                  label="Categories"
-                  value={displayBook.categories?.join(", ") || "N/A"}
+            ) : (
+              <ScrollView contentContainerStyle={styles.scrollViewContent}>
+                <Image
+                  source={{ uri: displayBook.cover_image }}
+                  style={styles.coverImage}
+                  resizeMode="contain"
                 />
-                <DetailRow label="Contributor" value={displayBook.contributor} />
-                <DetailRow label="Source Language" value={displayBook.source_language} />
-                <DetailRow label="Country of Origin" value={displayBook.country_of_origin} />
-                <DetailRow label="Original Url" value={'letsreadasia.org'} isLink={true} />
-                <DetailRow label="License" value={displayBook.license} />
-              </View>
+                <Text style={styles.title}>{displayBook.title}</Text>
+                <Text style={styles.author}>{displayBook.author}</Text>
 
-              {displayBook.notes && (
-                <View style={styles.notesContainer}>
-                  <Text style={styles.notesHeader}>Notes:</Text>
-                  <Text style={styles.notesText}>{displayBook.notes}</Text>
+                <View style={styles.actionRow}>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={selectedLanguage}
+                      onValueChange={(itemValue) => setSelectedLanguage(itemValue)}
+                      style={styles.languagePicker}
+                      dropdownIconColor="#333"
+                      enabled={languagesList.length > 0}
+                    >
+                      {languagesList.length === 0 ? (
+                        <Picker.Item label="English" value="en" />
+                      ) : (
+                        languagesList.map((lang) => (
+                          <Picker.Item key={lang.id} label={lang.name} value={lang.id} />
+                        ))
+                      )}
+                    </Picker>
+                  </View>
+                  <TouchableOpacity style={styles.likeButton}>
+                    <Text style={{ fontSize: 20 }}>♡</Text>
+                  </TouchableOpacity>
                 </View>
-              )}
-            
-              <TouchableOpacity style={styles.reportIssue}>
-                <DetailRow label="Complete" value = {' '}/>
-                <Text style={styles.reportIssueText}>Report an issue with the book</Text>
-              </TouchableOpacity>
-            </ScrollView>
-          )}
-        </View>
-      </TouchableOpacity>
+
+                <View style={styles.readDownloadRow}>
+                  <TouchableOpacity
+                    style={[styles.readButton, !displayBook.web_book_uuid && { opacity: 0.5 }]}
+                    onPress={handleRead}
+                    disabled={!displayBook.web_book_uuid}
+                  >
+                    <Text style={styles.readButtonText}>📖 Read</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.downloadButton, !hasDownloadLink && { opacity: 0.5 }]}
+                    onPress={handleDownload}
+                    disabled={!hasDownloadLink}
+                  >
+                    <Text style={styles.downloadButtonText}>⬇</Text>
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.bookDescription}>
+                  {displayBook.description || "Không có mô tả."}
+                </Text>
+
+                <View style={styles.infoGrid}>
+                  <InfoItem label="Reading Level" value={displayBook.reading_level} />
+                  <InfoItem label="Pages" value={displayBook.pages} />
+                  <InfoItem label="Available Languages" value={languagesList.length} />
+                </View>
+              </ScrollView>
+            )}
+          </View>
+        </TouchableWithoutFeedback>
+
+        {/* lớp nền ngoài để đóng popup */}
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={StyleSheet.absoluteFillObject} />
+        </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 }
@@ -296,58 +285,29 @@ const styles = StyleSheet.create({
     maxWidth: 900,
     maxHeight: "100%",
     overflow: "hidden",
+    zIndex: 10,
   },
   closeButton: {
     position: "absolute",
     top: 10,
     right: 15,
-    zIndex: 10,
+    zIndex: 20,
     padding: 5,
   },
-  closeButtonText: {
-    fontSize: 24,
-    color: "#333",
-  },
-  scrollViewContent: {
-    padding: 24,
-    alignItems: "center",
-  },
-  loadingView: {
-    padding: 40,
-    alignItems: "center",
-  },
-  loadingText: {
-    marginTop: 12,
-    color: "#555",
-  },
-  errorView: {
-    padding: 30,
-    alignItems: "center",
-    width: "100%",
-  },
-  placeholderImage: {
-    width: 150,
-    height: 220,
-    backgroundColor: "#e0e0e0",
-    marginBottom: 20,
-    borderRadius: 4,
-  },
-  errorText: {
-    textAlign: "center",
-    marginBottom: 20,
-    fontSize: 16,
-    color: "#d32f2f",
-  },
+  closeButtonText: { fontSize: 24, color: "#333" },
+  scrollViewContent: { padding: 24, alignItems: "center" },
+  loadingView: { padding: 40, alignItems: "center" },
+  loadingText: { marginTop: 12, color: "#555" },
+  errorView: { padding: 30, alignItems: "center", width: "100%" },
+  placeholderImage: { width: 150, height: 220, backgroundColor: "#e0e0e0", marginBottom: 20 },
+  errorText: { textAlign: "center", marginBottom: 20, fontSize: 16, color: "#d32f2f" },
   errorCloseButton: {
     backgroundColor: "#f0f0f0",
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 4,
   },
-  errorCloseButtonText: {
-    fontWeight: "bold",
-    color: "#333",
-  },
+  errorCloseButtonText: { fontWeight: "bold", color: "#333" },
   coverImage: {
     width: 200,
     height: 270,
@@ -355,23 +315,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     backgroundColor: "#e5e7eb",
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 4,
-  },
-  author: {
-    textAlign: "center",
-    color: "gray",
-    marginBottom: 20,
-  },
-  actionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-  },
+  title: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 4 },
+  author: { textAlign: "center", color: "gray", marginBottom: 20 },
+  actionRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
   pickerContainer: {
     borderWidth: 1,
     borderColor: "#ccc",
@@ -382,10 +328,7 @@ const styles = StyleSheet.create({
     width: 400,
     justifyContent: "center",
   },
-  languagePicker: {
-    height: 40,
-    color: "#333",
-  },
+  languagePicker: { height: 40, color: "#333" },
   likeButton: {
     padding: 8,
     borderWidth: 1,
@@ -400,7 +343,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    width:700,
+    width: 700,
     marginBottom: 20,
   },
   readButton: {
@@ -411,11 +354,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginRight: 10,
   },
-  readButtonText: {
-    color: "white",
-    fontWeight: "bold",
-    fontSize: 16,
-  },
+  readButtonText: { color: "white", fontWeight: "bold", fontSize: 16 },
   downloadButton: {
     backgroundColor: "#f0f0f0",
     padding: 12,
@@ -425,18 +364,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  downloadButtonText: {
-    fontSize: 18,
-    color: "#333",
-  },
+  downloadButtonText: { fontSize: 18, color: "#333" },
   bookDescription: {
     fontSize: 14,
     textAlign: "center",
     color: "gray",
     marginBottom: 20,
     paddingHorizontal: 10,
-    marginLeft: '20%',
-    marginRight: '20%',
+    marginLeft: "20%",
+    marginRight: "20%",
   },
   infoGrid: {
     flexDirection: "row",
@@ -447,25 +383,9 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
     paddingBottom: 20,
   },
-  infoItem: {
-    flex: 1,
-    alignItems: "center",
-    marginHorizontal: 5,
-  },
-  infoValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  infoLabel: {
-    fontSize: 12,
-    color: "gray",
-    marginTop: 4,
-  },
-  detailSection: {
-    width: "100%",
-    paddingHorizontal: 10,
-  },
+  infoItem: { flex: 1, alignItems: "center", marginHorizontal: 5 },
+  infoValue: { fontSize: 24, fontWeight: "bold", color: "#333" },
+  infoLabel: { fontSize: 12, color: "gray", marginTop: 4 },
   detailRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -474,50 +394,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
-  detailLabel: {
-    fontWeight: "600",
-    color: "#333",
-    flexBasis: "40%",
-  },
-  detailValue: {
-    color: "#555",
-    textAlign: "right",
-    flexBasis: "60%",
-    flexShrink: 1,
-  },
+  detailLabel: { fontWeight: "600", color: "#333", flexBasis: "40%" },
+  detailValue: { color: "#555", textAlign: "right", flexBasis: "60%", flexShrink: 1 },
   detailLink: {
     color: "#007bff",
     textAlign: "right",
     textDecorationLine: "underline",
     flexBasis: "60%",
     flexShrink: 1,
-  },
-  notesContainer: {
-    width: "100%",
-    paddingHorizontal: 10,
-    marginBottom: 20,
-  },
-  notesHeader: {
-    fontWeight: "600",
-    marginTop: 20,
-    marginBottom: 5,
-    alignSelf: "flex-start",
-    width: "100%",
-  },
-  notesText: {
-    fontSize: 12,
-    color: "gray",
-    alignSelf: "flex-start",
-    width: "100%",
-  },
-  reportIssue: {
-    paddingVertical: 10,
-    alignSelf: "flex-start",
-    paddingHorizontal: 10,
-    marginBottom: 20,
-  },
-  reportIssueText: {
-    color: "#007bff",
-    textDecorationLine: "underline",
   },
 });
