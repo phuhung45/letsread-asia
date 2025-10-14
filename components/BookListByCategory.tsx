@@ -56,35 +56,7 @@ function CategoryRow({
           marginBottom: 8,
         }}
       >
-        <Text style={{ fontSize: 20, fontWeight: "700" }}>{cat.name}</Text>
 
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <TouchableOpacity
-            onPress={handlePrev}
-            disabled={startIndex === 0}
-            style={{ marginRight: 12 }}
-          >
-            <Text style={{ fontSize: 16, opacity: startIndex === 0 ? 0.4 : 1 }}>
-              ◀
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleNext}
-            disabled={startIndex + itemsPerRow >= (cat.books?.length || 0)}
-          >
-            <Text
-              style={{
-                fontSize: 16,
-                opacity:
-                  startIndex + itemsPerRow >= (cat.books?.length || 0)
-                    ? 0.4
-                    : 1,
-              }}
-            >
-              ▶
-            </Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* Books grid */}
@@ -106,7 +78,7 @@ function CategoryRow({
               }}
               style={{
                 width: itemWidth,
-                height: itemHeight + 70,
+                height: itemHeight-50,
                 alignItems: "center",
                 marginRight: index !== visibleBooks.length - 1 ? gap : 0,
               }}
@@ -158,10 +130,7 @@ function CategoryRow({
             color: "gray",
           }}
         >
-          {`${startIndex + 1}-${Math.min(
-            startIndex + itemsPerRow,
-            cat.books.length
-          )} / ${cat.books.length} sách`}
+    
         </Text>
       )}
 

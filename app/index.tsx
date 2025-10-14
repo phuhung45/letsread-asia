@@ -150,7 +150,7 @@ export default function Index() {
                     marginBottom: 12,
                   }}
                 >
-                  <Text style={{ fontSize: 18, fontWeight: "bold" }}>{cat.name}</Text>
+                  <Text style={{ fontSize: 20, fontWeight: "bold" }}>{cat.name}</Text>
 
                   <View style={{ flexDirection: "row", gap: 8 }}>
                     <TouchableOpacity
@@ -182,14 +182,15 @@ export default function Index() {
                 </View>
 
                 <BookListByCategory
-                  categories={[{ ...cat, books: visibleBooks }]}
-                  onSelectBook={(book) => {
-                    console.log("🔹 Clicked book:", book?.book_uuid);
-                    // Dữ liệu sách (book) được lưu lại, và visible được bật
-                    setPopupState({ book, visible: true });
-                  }}
-                  responsive
-                />
+                    categories={[{ ...cat, books: visibleBooks }]} // ✅ Giữ nguyên
+                    onSelectBook={(book) => {
+                      console.log("🔹 Clicked book:", book?.book_uuid);
+                      setPopupState({ book, visible: true });
+                    }}
+                    responsive
+                    key={`cat-${cat.id}-${pageIndex[cat.id]}`} // ✅ THÊM KEY UNIQUE ĐỂ FORCERE-RENDER
+                  />
+
 
                 {maxPage > 1 && (
                   <Text
@@ -200,7 +201,6 @@ export default function Index() {
                       marginTop: 4,
                     }}
                   >
-                    Trang {page + 1}/{maxPage}
                   </Text>
                 )}
               </View>
