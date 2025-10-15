@@ -1,43 +1,79 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useState } from "react";
-import { View, Text, ActivityIndicator } from "react-native";
+import { View, Text, ActivityIndicator, Platform, Dimensions } from "react-native";
 import { getBookPdf } from "../../lib/queries";
+import { WebView } from "react-native-webview";
 
 export default function ReadBook() {
-  const { id, lang } = useLocalSearchParams(); // /read/123?lang=en
-  const [pdfUrl, setPdfUrl] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const { id, lang } = useLocalSearchParams();
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!id) return;
-    setLoading(true);
-
-    getBookPdf(id, lang || "en")
-      .then((url) => setPdfUrl(url))
-      .catch((err) => console.error("❌ Lỗi load PDF:", err))
-      .finally(() => setLoading(false));
+    (async () => {
+      setLoading(true);
+      const url = await getBookPdf(id as string, lang || "en");
+      setPdfUrl(url);
+      setLoading(false);
+    })();
   }, [id, lang]);
 
-  if (loading) {
+  if (loading)
     return (
-      <View className="flex-1 justify-center items-center">
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
         <ActivityIndicator size="large" />
       </View>
     );
-  }
 
-  if (!pdfUrl) {
+  if (!pdfUrl)
     return (
-      <View className="flex-1 justify-center items-center">
-        <Text>❌ Không có PDF cho sách này</Text>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+        <Text>❌ Không có file PDF cho sách này</Text>
       </View>
+    );
+
+  const windowWidth = Dimensions.get("window").width;
+  const windowHeight = Dimensions.get("window").height;
+
+  // 🟢 Mobile: dùng WebView
+  if (Platform.OS === "android" || Platform.OS === "ios") {
+    return (
+      <WebView
+        originWhitelist={["*"]}
+        source={{ uri: pdfUrl }}
+        style={{ flex: 1, width: windowWidth, height: windowHeight }}
+        startInLoadingState={true}
+        renderLoading={() => (
+          <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
+            <ActivityIndicator size="large" />
+          </View>
+        )}
+      />
     );
   }
 
+  // 🟢 Web: dùng iframe
   return (
-    <View className="flex-1">
-      {/* 👉 Ở đây bạn có thể dùng react-native-pdf để hiển thị */}
-      <Text className="p-4">PDF URL: {pdfUrl}</Text>
+    <View
+      style={{
+        flex: 1,
+        width: "100%",
+        height: "100vh",
+        justifyContent: "center",
+        alignItems: "center",
+      }}
+    >
+      <iframe
+        src={`https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(pdfUrl)}`}
+        width="90%"
+        height="95%"
+        style={{
+          border: "none",
+          boxShadow: "0 0 10px rgba(0,0,0,0.1)",
+          borderRadius: "8px",
+        }}
+      />
     </View>
   );
 }

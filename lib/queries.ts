@@ -1,5 +1,8 @@
 import { supabase } from "./supabase";
 
+// ==============================
+// 📚 Lấy chi tiết sách + ngôn ngữ
+// ==============================
 export async function getBookWithLanguages(book_uuid: string) {
   console.log("📘 Fetching book with UUID:", book_uuid);
 
@@ -19,14 +22,48 @@ export async function getBookWithLanguages(book_uuid: string) {
 
   if (error) {
     console.error("❌ Supabase fetch error:", error);
-    return { error };
+    return null;
   }
 
   if (!data) {
     console.warn(`⚠️ Không tìm thấy sách với UUID: ${book_uuid}`);
-    return { error: { message: "Không tìm thấy thông tin sách." } };
+    return null;
   }
 
   console.log("✅ Book fetched successfully:", data);
-  return { data };
+  return data;
+}
+
+// ==============================
+// 📄 Lấy link PDF hoặc EPUB
+// ==============================
+export async function getBookPdf(book_uuid: string, language_id?: number | string) {
+  console.log("📄 Fetching book PDF for:", { book_uuid, language_id });
+
+  try {
+    const { data, error } = await supabase
+      .from("book_content")
+      .select("id, book_id, pdf_url, epub_url, language_id")
+      .eq("book_id", book_uuid)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("❌ Supabase getBookPdf error:", error);
+      return null;
+    }
+
+    if (!data) {
+      console.warn(`⚠️ Không có file PDF cho sách: ${book_uuid}`);
+      return null;
+    }
+
+    console.log("✅ getBookPdf success:", data);
+
+    // ✅ Ưu tiên PDF, fallback EPUB
+    return data.pdf_url || data.epub_url || null;
+  } catch (err) {
+    console.error("💥 Exception in getBookPdf:", err);
+    return null;
+  }
 }
