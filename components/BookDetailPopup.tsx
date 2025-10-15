@@ -14,12 +14,15 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { supabase } from "../lib/supabase";
+import { router } from "expo-router"; // ✅ dùng expo-router để điều hướng nội bộ
 
 interface Props {
   visible?: boolean;
   bookId: string | undefined;
   onClose: () => void;
 }
+
+const SITE_URL = "http://localhost:8081"; // ✅ base URL cho fallback khi cần
 
 const InfoItem = ({ label, value }: { label: string; value: string | number }) => (
   <View style={styles.infoItem}>
@@ -28,54 +31,78 @@ const InfoItem = ({ label, value }: { label: string; value: string | number }) =
   </View>
 );
 
-const DetailRow = ({
-  label,
-  value,
-  isLink = false,
-}: {
-  label: string;
-  value: string;
-  isLink?: boolean;
-}) => {
-  if (!value) return null;
-  return (
-    <View style={styles.detailRow}>
-      <Text style={styles.detailLabel}>{label}</Text>
-      <Text
-        style={isLink ? styles.detailLink : styles.detailValue}
-        numberOfLines={isLink ? 1 : undefined}
-        ellipsizeMode="tail"
-      >
-        {value}
-      </Text>
-    </View>
-  );
-};
-
 export default function BookDetailPopup({ visible = false, bookId, onClose }: Props) {
   const [book, setBook] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
   const [languagesList, setLanguagesList] = useState<{ id: string; name: string }[]>([]);
 
+  // ✅ 1. Nút READ — điều hướng nội bộ (vẫn ở tab hiện tại)
   const handleRead = () => {
-    const url = book?.web_book_uuid ? `https://your-domain.com/read/${book.web_book_uuid}` : null;
-    if (url) {
-      Linking.openURL(url);
-    } else {
-      Alert.alert("Lỗi", "Không tìm thấy liên kết đọc sách.");
+    if (!book || !book.book_uuid || !selectedLanguage) {
+      Alert.alert("Lỗi", "Không đủ thông tin để đọc sách.");
+      return;
+    }
+
+    const routePath = `/read/${book.book_uuid}?bookLang=${selectedLanguage}`;
+    try {
+      router.push(routePath);
+    } catch (err) {
+      console.error("Router push error:", err);
+      const url = `${SITE_URL}/read/${book.book_uuid}?bookLang=${selectedLanguage}`;
+      Linking.openURL(url).catch(() =>
+        Alert.alert("Lỗi", "Không thể mở trang đọc.")
+      );
     }
   };
 
-  const handleDownload = () => {
-    const downloadUrl = book?.pdf_url || book?.epub_url;
-    if (downloadUrl) {
-      Linking.openURL(downloadUrl);
-    } else {
-      Alert.alert("Lỗi", "Không tìm thấy liên kết tải về (PDF/EPUB).");
+  // ✅ 2. Nút DOWNLOAD — lấy đúng epub_url theo book_id + language_id (ép kiểu number)
+  const handleDownload = async () => {
+    if (!book?.id || !selectedLanguage) {
+      Alert.alert("Lỗi", "Thiếu thông tin sách hoặc ngôn ngữ.");
+      return;
+    }
+
+    try {
+      const langIdNum = Number(selectedLanguage); // ✅ ép kiểu number
+      if (isNaN(langIdNum)) {
+        Alert.alert("Lỗi", "ID ngôn ngữ không hợp lệ.");
+        return;
+      }
+      console.log("🧩 Trying to download:", {
+        bookId: book.id,
+        selectedLanguage,
+        langIdNum,
+      });
+
+      const { data: content, error } = await supabase
+        .from("book_content")
+        .select("id, book_id, language_id, epub_url")
+        .eq("book_id", book.book_uuid)
+        .eq("language_id", langIdNum)
+        .maybeSingle();
+
+      console.log("🔍 Download query result:", content);
+
+      if (error) throw error;
+
+      if (content?.epub_url) {
+        Linking.openURL(content.epub_url).catch(() =>
+          Alert.alert("Lỗi", "Không thể mở liên kết tải xuống EPUB.")
+        );
+      } else {
+        Alert.alert(
+          "Không tìm thấy file EPUB",
+          `Không có EPUB cho book_id=${book.id}, language_id=${selectedLanguage}`
+        );
+      }
+    } catch (err) {
+      console.error("❌ Lỗi handleDownload:", err);
+      Alert.alert("Lỗi tải xuống", "Không thể lấy link EPUB.");
     }
   };
 
+  // ✅ Lấy thông tin sách theo ngôn ngữ
   const fetchBookByLanguage = async (language_id: string) => {
     if (!bookId) return;
     setLoading(true);
@@ -94,20 +121,12 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
         .select("categories(name)")
         .eq("book_id", bookData.id);
 
-      const { data: contentData } = await supabase
-        .from("book_content")
-        .select("pdf_url, epub_url")
-        .eq("book_id", bookData.id)
-        .maybeSingle();
-
       const categories =
         catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
 
       setBook({
         ...bookData,
         categories,
-        pdf_url: contentData?.pdf_url || null,
-        epub_url: contentData?.epub_url || null,
       });
     } catch (err: any) {
       console.error("❌ Lỗi fetchBookByLanguage:", err);
@@ -117,6 +136,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
     }
   };
 
+  // ✅ Lấy danh sách ngôn ngữ
   useEffect(() => {
     if (!visible || !bookId) {
       setBook(null);
@@ -161,6 +181,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
     fetchBook();
   }, [visible, bookId]);
 
+  // ✅ Khi đổi ngôn ngữ thì load lại sách
   useEffect(() => {
     if (selectedLanguage && bookId) {
       fetchBookByLanguage(selectedLanguage);
@@ -170,12 +191,10 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   if (!visible || !bookId) return null;
 
   const displayBook = book || {};
-  const hasDownloadLink = displayBook.pdf_url || displayBook.epub_url;
 
   return (
     <Modal visible={visible} animationType="fade" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        {/* phần popup chính – chặn click ra ngoài */}
         <TouchableWithoutFeedback>
           <View style={styles.popupContainer}>
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -225,23 +244,19 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
                       )}
                     </Picker>
                   </View>
-                  <TouchableOpacity style={styles.likeButton}>
-                    <Text style={{ fontSize: 20 }}>♡</Text>
-                  </TouchableOpacity>
                 </View>
 
                 <View style={styles.readDownloadRow}>
                   <TouchableOpacity
-                    style={[styles.readButton, !displayBook.web_book_uuid && { opacity: 0.5 }]}
+                    style={[styles.readButton, !displayBook.book_uuid && { opacity: 0.5 }]}
                     onPress={handleRead}
-                    disabled={!displayBook.web_book_uuid}
+                    disabled={!displayBook.book_uuid}
                   >
                     <Text style={styles.readButtonText}>📖 Read</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.downloadButton, !hasDownloadLink && { opacity: 0.5 }]}
+                    style={styles.downloadButton}
                     onPress={handleDownload}
-                    disabled={!hasDownloadLink}
                   >
                     <Text style={styles.downloadButtonText}>⬇</Text>
                   </TouchableOpacity>
@@ -261,7 +276,6 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
           </View>
         </TouchableWithoutFeedback>
 
-        {/* lớp nền ngoài để đóng popup */}
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={StyleSheet.absoluteFillObject} />
         </TouchableWithoutFeedback>
@@ -270,30 +284,11 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   );
 }
 
+// ✅ giữ nguyên style
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  popupContainer: {
-    backgroundColor: "white",
-    borderRadius: 30,
-    width: "100%",
-    maxWidth: 900,
-    maxHeight: "100%",
-    overflow: "hidden",
-    zIndex: 10,
-  },
-  closeButton: {
-    position: "absolute",
-    top: 10,
-    right: 15,
-    zIndex: 20,
-    padding: 5,
-  },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 20 },
+  popupContainer: { backgroundColor: "white", borderRadius: 30, width: "100%", maxWidth: 900, maxHeight: "100%", overflow: "hidden", zIndex: 10 },
+  closeButton: { position: "absolute", top: 10, right: 15, zIndex: 20, padding: 5 },
   closeButtonText: { fontSize: 24, color: "#333" },
   scrollViewContent: { padding: 24, alignItems: "center" },
   loadingView: { padding: 40, alignItems: "center" },
@@ -301,106 +296,22 @@ const styles = StyleSheet.create({
   errorView: { padding: 30, alignItems: "center", width: "100%" },
   placeholderImage: { width: 150, height: 220, backgroundColor: "#e0e0e0", marginBottom: 20 },
   errorText: { textAlign: "center", marginBottom: 20, fontSize: 16, color: "#d32f2f" },
-  errorCloseButton: {
-    backgroundColor: "#f0f0f0",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 4,
-  },
+  errorCloseButton: { backgroundColor: "#f0f0f0", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 4 },
   errorCloseButtonText: { fontWeight: "bold", color: "#333" },
-  coverImage: {
-    width: 200,
-    height: 270,
-    borderRadius: 4,
-    marginBottom: 16,
-    backgroundColor: "#e5e7eb",
-  },
+  coverImage: { width: 200, height: 270, borderRadius: 4, marginBottom: 16, backgroundColor: "#e5e7eb" },
   title: { fontSize: 22, fontWeight: "bold", textAlign: "center", marginBottom: 4 },
   author: { textAlign: "center", color: "gray", marginBottom: 20 },
   actionRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  pickerContainer: {
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 4,
-    marginRight: 10,
-    overflow: "hidden",
-    height: 40,
-    width: 400,
-    justifyContent: "center",
-  },
+  pickerContainer: { borderWidth: 1, borderColor: "#ccc", borderRadius: 4, marginRight: 10, overflow: "hidden", height: 40, width: 400, justifyContent: "center" },
   languagePicker: { height: 40, color: "#333" },
-  likeButton: {
-    padding: 8,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 4,
-    justifyContent: "center",
-    alignItems: "center",
-    width: 40,
-    height: 40,
-  },
-  readDownloadRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    width: 700,
-    marginBottom: 20,
-  },
-  readButton: {
-    backgroundColor: "#4CAF50",
-    paddingVertical: 12,
-    width: 400,
-    paddingHorizontal: 40,
-    borderRadius: 4,
-    marginRight: 10,
-  },
+  readDownloadRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", width: 700, marginBottom: 20 },
+  readButton: { backgroundColor: "#4CAF50", paddingVertical: 12, width: 400, paddingHorizontal: 40, borderRadius: 4, marginRight: 10 },
   readButtonText: { color: "white", fontWeight: "bold", fontSize: 16 },
-  downloadButton: {
-    backgroundColor: "#f0f0f0",
-    padding: 12,
-    borderRadius: 4,
-    width: 45,
-    height: 45,
-    justifyContent: "center",
-    alignItems: "center",
-  },
+  downloadButton: { backgroundColor: "#f0f0f0", padding: 12, borderRadius: 4, width: 45, height: 45, justifyContent: "center", alignItems: "center" },
   downloadButtonText: { fontSize: 18, color: "#333" },
-  bookDescription: {
-    fontSize: 14,
-    textAlign: "center",
-    color: "gray",
-    marginBottom: 20,
-    paddingHorizontal: 10,
-    marginLeft: "20%",
-    marginRight: "20%",
-  },
-  infoGrid: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    width: "100%",
-    marginBottom: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    paddingBottom: 20,
-  },
+  bookDescription: { fontSize: 14, textAlign: "center", color: "gray", marginBottom: 20, paddingHorizontal: 10, marginLeft: "20%", marginRight: "20%" },
+  infoGrid: { flexDirection: "row", justifyContent: "space-around", width: "100%", marginBottom: 20, borderBottomWidth: 1, borderBottomColor: "#eee", paddingBottom: 20 },
   infoItem: { flex: 1, alignItems: "center", marginHorizontal: 5 },
   infoValue: { fontSize: 24, fontWeight: "bold", color: "#333" },
   infoLabel: { fontSize: 12, color: "gray", marginTop: 4 },
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: "100%",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  detailLabel: { fontWeight: "600", color: "#333", flexBasis: "40%" },
-  detailValue: { color: "#555", textAlign: "right", flexBasis: "60%", flexShrink: 1 },
-  detailLink: {
-    color: "#007bff",
-    textAlign: "right",
-    textDecorationLine: "underline",
-    flexBasis: "60%",
-    flexShrink: 1,
-  },
 });
