@@ -47,7 +47,8 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 
     const routePath = `/read/${book.book_uuid}?bookLang=${selectedLanguage}`;
     try {
-      router.push(routePath);
+      router.push(`/read/${book.book_uuid}?language=${selectedLanguage}`);
+      if (onClose) onClose();
     } catch (err) {
       console.error("Router push error:", err);
       const url = `${SITE_URL}/read/${book.book_uuid}?bookLang=${selectedLanguage}`;
