@@ -49,10 +49,8 @@ useEffect(() => {
  // 2. Lấy books: INNER JOIN để lọc sách đã dịch
  const { data: booksData, error: booksError } = await supabase
   .from("books")
-  .select(`*, book_categories(*), book_content(*)`)
-  .innerJoin("book_languages", (query) => 
-  query.eq("language_id", languageId)
-  )
+  .select(`*, book_categories(*), book_content(*), book_languages!inner(*)`)
+  .eq("book_languages.language_id", languageId)
   .order("created_at", { ascending: false });
 
  if (booksError) {

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigation } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -12,11 +13,24 @@ import { Ionicons } from "@expo/vector-icons";
 import HomeIcon from "../assets/icons/HomeIcon";
 import BookIcon from "../assets/icons/BookIcon";
 import ProfileIcon from "../assets/icons/ProfileIcon";
-import { Colors } from "react-native/Libraries/NewAppScreen";
 
-export default function Header({ navigation, currentTab = "Home" }: any) {
+export default function Header({currentTab = "Home" }: any) {
+  const navigation = useNavigation<any>();
   const [menuVisible, setMenuVisible] = useState(false);
   const [lang, setLang] = useState("English");
+  const [user, setUser] = useState<{ name?: string; avatar_url?: string } | null>(null); // 👈 kiểm tra login hay chưa
+
+  const handleLogin = () => {
+    // ⚡ Ở đây bạn có thể gọi Supabase / API login / navigation
+    console.log("Login button pressed");
+    navigation.navigate("Login"); // hoặc mở popup login
+  };
+
+  const handleLogout = () => {
+    // ⚡ Thực hiện logout
+    setUser(null);
+    console.log("User logged out");
+  };
 
   return (
     <View style={styles.header}>
@@ -30,25 +44,33 @@ export default function Header({ navigation, currentTab = "Home" }: any) {
       {/* Middle Menu */}
       <View style={styles.centerMenu}>
         <TouchableOpacity onPress={() => navigation.navigate("Home")}>
-          <Text>
+          <Text style={styles.menuItem}>
             <HomeIcon
-            size={20}
-            color={currentTab === "Home" ? "#1F8915" : "green"}
-          />Home</Text>
+              size={20}
+              color={currentTab === "Home" ? "#1F8915" : "green"}
+            />
+            Home
+          </Text>
         </TouchableOpacity>
+
         <TouchableOpacity onPress={() => navigation.navigate("MyBooks")}>
-          <Text>
+          <Text style={styles.menuItem}>
             <BookIcon
-            size={20}
-            color={currentTab === "MyBooks" ? "#1F8915" : "green"}
-          />My Books</Text>
+              size={20}
+              color={currentTab === "MyBooks" ? "#1F8915" : "green"}
+            />
+            My Books
+          </Text>
         </TouchableOpacity>
+
         <TouchableOpacity onPress={() => navigation.navigate("Profile")}>
-            <Text>
-                <ProfileIcon
-            size={20}
-            color={currentTab === "Profile" ? "#1F8915" : "green"}
-          />Profile</Text>
+          <Text style={styles.menuItem}>
+            <ProfileIcon
+              size={20}
+              color={currentTab === "Profile" ? "#1F8915" : "green"}
+            />
+            Profile
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -79,12 +101,33 @@ export default function Header({ navigation, currentTab = "Home" }: any) {
           onPress={() => setMenuVisible(false)}
         />
         <View style={styles.sideMenu}>
-          <TouchableOpacity style={styles.loginBtn}>
-            <Text style={styles.loginText}>
-              Log in to save your progress and favorite books
+          {/* 👤 Header Side Menu */}
+          <View style={styles.sideHeader}>
+            <Image
+              source={
+                user
+                  ? { uri: user.avatar_url }
+                  : require("../assets/images/avatar.jpg")
+              }
+              style={styles.avatar}
+            />
+            <Text style={styles.username}>
+              {user ? user.name : "Guest"}
             </Text>
-          </TouchableOpacity>
+          </View>
 
+          {/* 🔐 Login / Logout */}
+          {!user ? (
+            <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
+              <Text style={styles.loginText}>Log in to your account</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={styles.loginBtn} onPress={handleLogout}>
+              <Text style={styles.loginText}>Log out</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* 📜 Menu phụ */}
           <View style={styles.menuList}>
             <View style={styles.menuRow}>
               <Ionicons name="globe-outline" size={20} color="#444" />
@@ -126,21 +169,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   logo: { width: 100, height: 35 },
-  centerMenu: {
-    flexDirection: "row",
-    gap: 20,
-  },
-  rightMenu: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 15,
-  },
-  langBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    color: "green",
-  },
+  centerMenu: { flexDirection: "row", gap: 20 },
+  rightMenu: { flexDirection: "row", alignItems: "center", gap: 15 },
+  menuItem: { fontSize: 15, color: "green" },
+  langBtn: { flexDirection: "row", alignItems: "center", gap: 4 },
   langText: { fontSize: 14, color: "green" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)" },
   sideMenu: {
@@ -156,6 +188,14 @@ const styles = StyleSheet.create({
     shadowRadius: 5,
     elevation: 5,
   },
+  sideHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+  },
+  avatar: { width: 40, height: 40, borderRadius: 20 },
+  username: { fontSize: 16, fontWeight: "600", color: "#333" },
   loginBtn: {
     borderWidth: 1,
     borderColor: "#22c55e",
@@ -163,12 +203,7 @@ const styles = StyleSheet.create({
     padding: 8,
     marginBottom: 15,
   },
-  loginText: {
-    color: "green",
-    textAlign: "center",
-    fontSize: 14,
-    fontWeight: "600",
-  },
+  loginText: { color: "green", textAlign: "center", fontSize: 14 },
   menuList: { marginTop: 10 },
   menuRow: {
     flexDirection: "row",
