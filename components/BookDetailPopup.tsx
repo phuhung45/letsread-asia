@@ -282,7 +282,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
                     style={[styles.favoriteButton, favorite && styles.favoriteActive]}
                     onPress={handleAddFavorite}
                   >
-                    <Text style={styles.favoriteText}>{favorite ? "♥ Favorited" : "♡ Add to favorite"}</Text>
+                    <Text style={styles.favoriteText}>{favorite ? "♥ Favorited" : "♡"}</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -520,7 +520,7 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   favoriteActive: { backgroundColor: "#fdecea", borderColor: "#f5b4b4" },
-  favoriteText: { color: "#333", fontWeight: "600", fontSize: 10, textAlign: "center" },
+  favoriteText: { color: "#333", fontWeight: "600", fontSize: 20, textAlign: "center" },
 
   readDownloadRow: {
     flexDirection: "row",

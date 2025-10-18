@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { useNavigation } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -10,26 +9,39 @@ import {
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import HomeIcon from "../assets/icons/HomeIcon";
 import BookIcon from "../assets/icons/BookIcon";
 import ProfileIcon from "../assets/icons/ProfileIcon";
+import { useAuth } from "../contexts/AuthContext";
 
-export default function Header({currentTab = "Home" }: any) {
-  const navigation = useNavigation<any>();
+export default function Header({ currentTab = "Home" }: any) {
   const [menuVisible, setMenuVisible] = useState(false);
   const [lang, setLang] = useState("English");
-  const [user, setUser] = useState<{ name?: string; avatar_url?: string } | null>(null); // 👈 kiểm tra login hay chưa
+  const { user, signOut } = useAuth();
 
   const handleLogin = () => {
-    // ⚡ Ở đây bạn có thể gọi Supabase / API login / navigation
-    console.log("Login button pressed");
-    navigation.navigate("Login"); // hoặc mở popup login
+    console.log("🔐 Login pressed");
+    router.push("/Login");
+    setMenuVisible(false);
   };
 
-  const handleLogout = () => {
-    // ⚡ Thực hiện logout
-    setUser(null);
-    console.log("User logged out");
+  const handleLogout = async () => {
+    console.log("🚪 Logging out...");
+    await signOut();
+    setMenuVisible(false);
+  };
+
+  const goHome = () => {
+    router.push("/");
+  };
+
+  const goMyBooks = () => {
+    router.push("/Mybooks" as Href<"/Mybooks">);
+  };
+
+  const goProfile = () => {
+    router.push("/Profile");
   };
 
   return (
@@ -43,32 +55,32 @@ export default function Header({currentTab = "Home" }: any) {
 
       {/* Middle Menu */}
       <View style={styles.centerMenu}>
-        <TouchableOpacity onPress={() => navigation.navigate("Home")}>
+        <TouchableOpacity onPress={goHome}>
           <Text style={styles.menuItem}>
             <HomeIcon
               size={20}
               color={currentTab === "Home" ? "#1F8915" : "green"}
-            />
+            />{" "}
             Home
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("MyBooks")}>
+        <TouchableOpacity onPress={goMyBooks}>
           <Text style={styles.menuItem}>
             <BookIcon
               size={20}
               color={currentTab === "MyBooks" ? "#1F8915" : "green"}
-            />
+            />{" "}
             My Books
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity onPress={() => navigation.navigate("Profile")}>
+        <TouchableOpacity onPress={goProfile}>
           <Text style={styles.menuItem}>
             <ProfileIcon
               size={20}
               color={currentTab === "Profile" ? "#1F8915" : "green"}
-            />
+            />{" "}
             Profile
           </Text>
         </TouchableOpacity>
@@ -101,22 +113,22 @@ export default function Header({currentTab = "Home" }: any) {
           onPress={() => setMenuVisible(false)}
         />
         <View style={styles.sideMenu}>
-          {/* 👤 Header Side Menu */}
+          {/* Header user info */}
           <View style={styles.sideHeader}>
             <Image
               source={
-                user
-                  ? { uri: user.avatar_url }
+                user?.user_metadata?.avatar_url
+                  ? { uri: user.user_metadata.avatar_url }
                   : require("../assets/images/avatar.jpg")
               }
               style={styles.avatar}
             />
             <Text style={styles.username}>
-              {user ? user.name : "Guest"}
+              {user?.user_metadata?.name || user?.email || "Guest"}
             </Text>
           </View>
 
-          {/* 🔐 Login / Logout */}
+          {/* Login / Logout */}
           {!user ? (
             <TouchableOpacity style={styles.loginBtn} onPress={handleLogin}>
               <Text style={styles.loginText}>Log in to your account</Text>
@@ -127,7 +139,7 @@ export default function Header({currentTab = "Home" }: any) {
             </TouchableOpacity>
           )}
 
-          {/* 📜 Menu phụ */}
+          {/* Other menu items */}
           <View style={styles.menuList}>
             <View style={styles.menuRow}>
               <Ionicons name="globe-outline" size={20} color="#444" />

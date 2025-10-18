@@ -1,78 +1,105 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, ActivityIndicator, Alert, StyleSheet } from "react-native";
-import { supabase } from "../lib/supabase";
-import { useRouter } from "expo-router";
+import { router } from "expo-router";
+import React from "react";
+import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useAuth } from "../contexts/AuthContext"; // dùng context login của bạn
 
-export default function Profile() {
-  const router = useRouter();
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+export default function ProfileScreen() {
+  const { session } = useAuth();
 
-  // Lấy thông tin người dùng hiện tại
-  useEffect(() => {
-    const getUser = async () => {
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
-        router.replace("/login");
-      } else {
-        setUser(data.user);
-      }
-      setLoading(false);
-    };
-
-    getUser();
-
-    // Lắng nghe sự thay đổi trạng thái đăng nhập (login/logout)
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) router.replace("/login");
-    });
-
-    return () => listener.subscription.unsubscribe();
-  }, []);
-
-  // Đăng xuất
-  const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) Alert.alert("Lỗi", error.message);
-    else router.replace("/login");
-  };
-
-  if (loading)
+  if (!session) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator size="large" color="#007bff" />
+      <View style={styles.center}>
+        <Text style={styles.message}>
+          Log in to access profiles, favorite books, and your reading goals
+        </Text>
+        <TouchableOpacity
+          style={styles.loginBtn}
+          onPress={() => router.push("/Login")}
+        >
+          <Text style={styles.loginText}>Log in</Text>
+        </TouchableOpacity>
       </View>
     );
+  }
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Thông tin tài khoản</Text>
-      <View style={styles.card}>
-        <Text style={styles.label}>ID:</Text>
-        <Text style={styles.value}>{user?.id}</Text>
-        <Text style={styles.label}>Email:</Text>
-        <Text style={styles.value}>{user?.email}</Text>
-      </View>
+      <Image
+        source={require("../assets/images/elephant_read.png")} // ảnh bạn có thể thay
+        style={styles.image}
+      />
+      <Text style={styles.title}>Today's Reading</Text>
+      <Text style={styles.time}>0 min</Text>
 
-      <TouchableOpacity style={styles.button} onPress={handleLogout}>
-        <Text style={styles.buttonText}>Đăng xuất</Text>
-      </TouchableOpacity>
+      <View style={styles.weekContainer}>
+        {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
+          <View key={index} style={styles.dayCircle}>
+            <Text style={styles.dayText}>{day}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff", padding: 20 },
-  title: { fontSize: 24, fontWeight: "bold", marginBottom: 20 },
-  card: {
-    width: "100%",
-    backgroundColor: "#f5f5f5",
-    borderRadius: 10,
-    padding: 20,
-    marginBottom: 30,
+  center: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
   },
-  label: { fontWeight: "bold", fontSize: 16, marginTop: 10 },
-  value: { fontSize: 16, color: "#333" },
-  button: { backgroundColor: "#dc3545", padding: 12, borderRadius: 8, width: "100%", alignItems: "center" },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
+  message: {
+    fontSize: 16,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  loginBtn: {
+    backgroundColor: "#4CAF50",
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  loginText: {
+    color: "#fff",
+    fontWeight: "bold",
+  },
+  container: {
+    flex: 1,
+    alignItems: "center",
+    paddingTop: 60,
+  },
+  image: {
+    width: 160,
+    height: 160,
+    resizeMode: "contain",
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: 20,
+  },
+  time: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#4CAF50",
+    marginBottom: 10,
+  },
+  weekContainer: {
+    flexDirection: "row",
+    marginTop: 20,
+    gap: 10,
+  },
+  dayCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: "#4CAF50",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  dayText: {
+    fontWeight: "600",
+  },
 });
