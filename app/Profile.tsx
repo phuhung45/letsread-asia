@@ -1,7 +1,8 @@
-import { router } from "expo-router";
 import React from "react";
 import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
-import { useAuth } from "../contexts/AuthContext"; // dùng context login của bạn
+import { router } from "expo-router";
+import { useAuth } from "../contexts/AuthContext";
+import Header from "../components/Header";
 
 export default function ProfileScreen() {
   const { session } = useAuth();
@@ -9,45 +10,54 @@ export default function ProfileScreen() {
   if (!session) {
     return (
       <View style={styles.center}>
-        <Text style={styles.message}>
-          Log in to access profiles, favorite books, and your reading goals
-        </Text>
-        <TouchableOpacity
-          style={styles.loginBtn}
-          onPress={() => router.push("/Login")}
-        >
-          <Text style={styles.loginText}>Log in</Text>
-        </TouchableOpacity>
+        <Header title="Profile" /> {/* ✅ Header cố định trên cùng */}
+        <View style={{ marginTop: 100 }}> {/* ✅ Đẩy nội dung xuống dưới header */}
+          <Text style={styles.message}>
+            Log in to access profiles, favorite books, and your reading goals
+          </Text>
+          <TouchableOpacity
+            style={styles.loginBtn}
+            onPress={() => router.push("/Login")}
+          >
+            <Text style={styles.loginText}>Log in</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <Image
-        source={require("../assets/images/elephant_read.png")} // ảnh bạn có thể thay
-        style={styles.image}
-      />
-      <Text style={styles.title}>Today's Reading</Text>
-      <Text style={styles.time}>0 min</Text>
+      <Header title="Profile" /> {/* ✅ Full width header */}
+      <View style={{ marginTop: 100, alignItems: "center" }}>
+        <Image
+          source={require("../assets/images/elephant_read.png")}
+          style={styles.image}
+        />
+        <Text style={styles.title}>Today's Reading</Text>
+        <Text style={styles.time}>0 min</Text>
 
-      <View style={styles.weekContainer}>
-        {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
-          <View key={index} style={styles.dayCircle}>
-            <Text style={styles.dayText}>{day}</Text>
-          </View>
-        ))}
+        <View style={styles.weekContainer}>
+          {["M", "T", "W", "T", "F", "S", "S"].map((day, index) => (
+            <View key={index} style={styles.dayCircle}>
+              <Text style={styles.dayText}>{day}</Text>
+            </View>
+          ))}
+        </View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+  },
   center: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    padding: 24,
+    backgroundColor: "#fff",
   },
   message: {
     fontSize: 16,
@@ -63,11 +73,6 @@ const styles = StyleSheet.create({
   loginText: {
     color: "#fff",
     fontWeight: "bold",
-  },
-  container: {
-    flex: 1,
-    alignItems: "center",
-    paddingTop: 60,
   },
   image: {
     width: 160,

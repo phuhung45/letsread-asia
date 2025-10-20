@@ -1,25 +1,28 @@
+import { Ionicons } from "@expo/vector-icons";
+import { Picker } from "@react-native-picker/picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  View,
-  Text,
   ActivityIndicator,
-  Platform,
   Dimensions,
-  TouchableOpacity,
-  StyleSheet,
   Linking,
   Modal,
+  Platform,
   Pressable,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
 import { WebView } from "react-native-webview";
-import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
 
 export default function ReadBook() {
   const { id, lang } = useLocalSearchParams();
   const router = useRouter();
+  const { session } = useAuth();
+  const userId = session?.user?.id;
 
   const [bookTitle, setBookTitle] = useState<string>("Untitled Book");
   const [languages, setLanguages] = useState<{ id: string; name: string }[]>([]);
@@ -28,9 +31,12 @@ export default function ReadBook() {
   const [epubUrl, setEpubUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  const [progress, setProgress] = useState<number>(0);
+  const progressRef = useRef(0);
+
   const [showDownloadPopup, setShowDownloadPopup] = useState(false);
 
-  // 🧭 Lấy danh sách ngôn ngữ
+  // 🔹 Lấy danh sách ngôn ngữ
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -39,10 +45,7 @@ export default function ReadBook() {
         .select("language_id, title, languages(name)")
         .eq("book_id", id);
 
-      if (error) {
-        console.error("❌ Lỗi lấy ngôn ngữ:", error);
-        return;
-      }
+      if (error) return console.error("Error fetching languages:", error);
 
       if (data && data.length > 0) {
         const langs = data.map((item: any) => ({
@@ -53,21 +56,16 @@ export default function ReadBook() {
 
         setLanguages(langs);
 
-        // 🔥 Ưu tiên lấy lang từ URL nếu có
         let defaultLang = (lang as string) || langs[0].id;
-        const isValid = langs.some((l) => l.id === defaultLang);
-        if (!isValid) defaultLang = langs[0].id;
+        if (!langs.some((l) => l.id === defaultLang)) defaultLang = langs[0].id;
 
         setSelectedLang(defaultLang);
-
-        const firstTitle =
-          langs.find((l) => l.id === defaultLang)?.title || "Untitled Book";
-        setBookTitle(firstTitle);
+        setBookTitle(langs.find((l) => l.id === defaultLang)?.title || "Untitled Book");
       }
     })();
   }, [id, lang]);
 
-  // 📄 Lấy file PDF/EPUB
+  // 🔹 Lấy file PDF/EPUB
   useEffect(() => {
     if (!id || !selectedLang) return;
     (async () => {
@@ -79,36 +77,116 @@ export default function ReadBook() {
         .eq("language_id", selectedLang)
         .maybeSingle();
 
-      if (error) console.error("❌ Lỗi lấy nội dung:", error);
+      if (error) console.error("Error fetching content:", error);
 
       setPdfUrl(data?.pdf_url || null);
       setEpubUrl(data?.epub_url || null);
       setBookTitle(data?.title || "Untitled Book");
       setLoading(false);
+
+      fetchProgress();
+      insertUserRead(); // 🔹 Thêm row vào user_reads khi mở sách
     })();
   }, [selectedLang, id]);
 
-  // 📥 Mở popup tải
+  // 🔹 Lấy progress hiện tại
+  const fetchProgress = async () => {
+    if (!userId || !id || !selectedLang) return;
+    try {
+      const { data } = await supabase
+        .from("user_reads")
+        .select("progress")
+        .eq("user_id", userId)
+        .eq("book_id", id)
+        .eq("language_id", selectedLang)
+        .maybeSingle();
+      const prog = data?.progress ?? 0;
+      setProgress(prog);
+      progressRef.current = prog;
+    } catch (err) {
+      console.error("Error fetching progress:", err);
+    }
+  };
+
+  // 🔹 Insert row vào user_reads nếu chưa có
+  const insertUserRead = async () => {
+    if (!userId || !id || !selectedLang) return;
+    try {
+      const { data, error } = await supabase
+        .from("user_reads")
+        .upsert(
+          [
+            {
+              user_id: userId,
+              book_id: id,
+              language_id: selectedLang,
+              progress: 0,
+            },
+          ],
+          { onConflict: ["user_id", "book_id", "language_id"] }
+        );
+
+      console.log("Insert/upsert user_reads:", { data, error });
+    } catch (err) {
+      console.error("Error inserting user_reads:", err);
+    }
+  };
+
+  // 🔹 Cập nhật progress realtime
+  const updateProgress = async (newProgress: number) => {
+    setProgress(newProgress);
+    progressRef.current = newProgress;
+    if (!userId || !id || !selectedLang) return;
+    try {
+      const { data, error } = await supabase
+        .from("user_reads")
+        .upsert(
+          [
+            {
+              user_id: userId,
+              book_id: id,
+              language_id: selectedLang,
+              progress: newProgress,
+            },
+          ],
+          { onConflict: ["user_id", "book_id", "language_id"] }
+        );
+      if (error) console.error("Error updating progress:", error);
+      else console.log("Progress updated:", newProgress);
+    } catch (err) {
+      console.error("Error updating progress:", err);
+    }
+  };
+
+  // 🔹 Nhận progress từ WebView
+  const handleWebViewMessage = (event: any) => {
+    const prog = Number(event.nativeEvent.data);
+    if (!isNaN(prog) && prog >= 0 && prog <= 100) {
+      updateProgress(prog);
+    }
+  };
+
+  // 🔹 Popup download
   const handleDownload = () => {
     if (!pdfUrl && !epubUrl) return;
     setShowDownloadPopup(true);
   };
 
-  // 🧭 Mở file
   const openFile = (url: string) => {
-    if (Platform.OS === "web") {
-      window.open(url, "_blank");
-    } else {
-      Linking.openURL(url).catch(() => {
-        alert("Không thể mở file. Vui lòng kiểm tra đường dẫn.");
-      });
-    }
+    if (Platform.OS === "web") window.open(url, "_blank");
+    else Linking.openURL(url).catch(() => alert("Không thể mở file."));
     setShowDownloadPopup(false);
   };
 
   const Header = () => (
     <View style={styles.header}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={() => {
+          if (router.canGoBack()) router.back();
+          else router.replace("/");
+        }}
+      >
         <Ionicons name="arrow-back" size={22} color="#007AFF" />
       </TouchableOpacity>
 
@@ -124,7 +202,7 @@ export default function ReadBook() {
             selectedValue={selectedLang}
             onValueChange={(v) => {
               setSelectedLang(v);
-              router.replace(`/read/${id}?lang=${v}`); // 🌟 Cập nhật URL khi đổi ngôn ngữ
+              router.replace(`/read/${id}?lang=${v}`);
             }}
             style={styles.picker}
           >
@@ -144,7 +222,6 @@ export default function ReadBook() {
     </View>
   );
 
-  // 🪟 Modal popup tải xuống
   const DownloadPopup = () => (
     <Modal transparent visible={showDownloadPopup} animationType="fade">
       <View style={styles.popupOverlay}>
@@ -171,26 +248,35 @@ export default function ReadBook() {
     </Modal>
   );
 
-  if (loading) {
+  if (loading)
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" />
       </View>
     );
-  }
 
   const windowWidth = Dimensions.get("window").width;
   const windowHeight = Dimensions.get("window").height;
 
-  if (Platform.OS === "android" || Platform.OS === "ios") {
-    return (
-      <View style={{ flex: 1 }}>
-        <Header />
-        <DownloadPopup />
+  const ProgressBar = () => (
+    <View style={styles.progressBarContainer}>
+      <View style={[styles.progressBar, { width: `${progress}%` }]} />
+      <Text style={styles.progressText}>{progress}%</Text>
+    </View>
+  );
+
+  return (
+    <View style={{ flex: 1 }}>
+      <Header />
+      <ProgressBar />
+      <DownloadPopup />
+
+      {(Platform.OS === "android" || Platform.OS === "ios") && pdfUrl && (
         <WebView
           originWhitelist={["*"]}
-          source={{ uri: pdfUrl || epubUrl! }}
+          source={{ uri: pdfUrl }}
           style={{ flex: 1, width: windowWidth, height: windowHeight }}
+          onMessage={handleWebViewMessage}
           startInLoadingState
           renderLoading={() => (
             <View style={styles.center}>
@@ -198,25 +284,19 @@ export default function ReadBook() {
             </View>
           )}
         />
-      </View>
-    );
-  }
+      )}
 
-  return (
-    <View style={{ flex: 1 }}>
-      <Header />
-      <DownloadPopup />
-      <View style={{ flex: 1, width: "100%", height: "100vh", alignItems: "center" }}>
+      {Platform.OS === "web" && pdfUrl && (
         <iframe
           title="pdf-viewer"
           src={`https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(
-            pdfUrl || epubUrl!
+            pdfUrl
           )}`}
           width="90%"
           height="92%"
           style={{ border: "none", borderRadius: 8 }}
         />
-      </View>
+      )}
     </View>
   );
 }
@@ -256,7 +336,6 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   downloadText: { color: "#fff", fontWeight: "600" },
-
   popupOverlay: {
     flex: 1,
     justifyContent: "center",
@@ -281,4 +360,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   popupBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  progressBarContainer: {
+    height: 20,
+    backgroundColor: "#eee",
+    borderRadius: 10,
+    overflow: "hidden",
+    width: "90%",
+    marginVertical: 8,
+    alignSelf: "center",
+    position: "relative",
+  },
+  progressBar: { height: "100%", backgroundColor: "#4CAF50" },
+  progressText: { position: "absolute", alignSelf: "center", color: "#fff", fontWeight: "700" },
 });

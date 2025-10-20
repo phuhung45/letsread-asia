@@ -22,9 +22,9 @@ interface Props {
   onClose: () => void;
 }
 
-const SITE_URL = "http://localhost:8081"; // ✅ base URL cho fallback khi cần
+const SITE_URL = "http://localhost:8081";
 
-const InfoItem = ({ label, value }: { label: string; value: string | number | null | undefined }) => (
+const InfoItem = ({ label, value }: { label: string | number | null | undefined; }) => (
   <View style={styles.infoRow}>
     <Text style={styles.infoLabel}>{label}</Text>
     <Text style={styles.infoValue}>{value ?? "-"}</Text>
@@ -38,14 +38,14 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   const [languagesList, setLanguagesList] = useState<{ id: string; name: string }[]>([]);
   const [favorite, setFavorite] = useState(false);
 
-  // ✅ 1. Nút READ — điều hướng nội bộ (vẫn ở tab hiện tại)
+  // ============================
+  // Read book → điều hướng nội bộ
+  // ============================
   const handleRead = () => {
-    if (!book || !book.book_uuid || !selectedLanguage) {
+    if (!book?.book_uuid || !selectedLanguage) {
       Alert.alert("Lỗi", "Không đủ thông tin để đọc sách.");
       return;
     }
-
-    const routePath = `/read/${book.book_uuid}?bookLang=${selectedLanguage}`;
     try {
       router.push(`/read/${book.book_uuid}?language=${selectedLanguage}`);
       if (onClose) onClose();
@@ -58,55 +58,46 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
     }
   };
 
-  // ✅ 2. Nút DOWNLOAD — giữ nguyên logic của bạn
+  // ============================
+  // Download EPUB
+  // ============================
   const handleDownload = async () => {
-    if (!book?.id || !selectedLanguage) {
+    if (!book?.book_uuid || !selectedLanguage) {
       Alert.alert("Lỗi", "Thiếu thông tin sách hoặc ngôn ngữ.");
       return;
     }
-
     try {
-      const langIdNum = Number(selectedLanguage); // ✅ ép kiểu number
+      const langIdNum = Number(selectedLanguage);
       if (isNaN(langIdNum)) {
         Alert.alert("Lỗi", "ID ngôn ngữ không hợp lệ.");
         return;
       }
-      console.log("🧩 Trying to download:", {
-        bookId: book.id,
-        selectedLanguage,
-        langIdNum,
-      });
 
       const { data: content, error } = await supabase
         .from("book_content")
-        .select("id, book_id, language_id, epub_url")
+        .select("epub_url")
         .eq("book_id", book.book_uuid)
         .eq("language_id", langIdNum)
         .maybeSingle();
-
-      console.log("🔍 Download query result:", content);
 
       if (error) throw error;
 
       if (content?.epub_url) {
         Linking.openURL(content.epub_url).catch(() =>
-          Alert.alert("Lỗi", "Không thể mở liên kết tải xuống EPUB.")
+          Alert.alert("Lỗi", "Không thể mở liên kết EPUB.")
         );
       } else {
-        Alert.alert(
-          "Không tìm thấy file EPUB",
-          `Không có EPUB cho book_id=${book.id}, language_id=${selectedLanguage}`
-        );
+        Alert.alert("Không tìm thấy file EPUB");
       }
     } catch (err) {
-      console.error("❌ Lỗi handleDownload:", err);
+      console.error("handleDownload error:", err);
       Alert.alert("Lỗi tải xuống", "Không thể lấy link EPUB.");
     }
   };
 
-  // =========================
-  // fetchBookByLanguage - giữ nguyên logic SQL của bạn (không sửa query)
-  // =========================
+  // ============================
+  // Fetch book by language
+  // ============================
   const fetchBookByLanguage = async (language_id: string) => {
     if (!bookId) return;
     setLoading(true);
@@ -125,22 +116,20 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
         .select("categories(name)")
         .eq("book_id", bookData.id);
 
-      const categories =
-        catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
+      const categories = catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
 
-      setBook({
-        ...bookData,
-        categories,
-      });
-    } catch (err: any) {
-      console.error("❌ Lỗi fetchBookByLanguage:", err);
+      setBook({ ...bookData, categories });
+    } catch (err) {
+      console.error("fetchBookByLanguage error:", err);
       Alert.alert("Lỗi tải dữ liệu", "Không thể tải chi tiết sách.");
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ Lấy danh sách ngôn ngữ
+  // ============================
+  // Fetch languages list
+  // ============================
   useEffect(() => {
     if (!visible || !bookId) {
       setBook(null);
@@ -149,7 +138,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
       return;
     }
 
-    const fetchBook = async () => {
+    const fetchLanguages = async () => {
       setLoading(true);
       try {
         const { data: langRecords, error: langError } = await supabase
@@ -159,11 +148,10 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 
         if (langError) throw langError;
 
-        const list =
-          langRecords?.map((r: any) => ({
-            id: r.language_id,
-            name: r.languages?.name || "Unknown",
-          })) ?? [];
+        const list = langRecords?.map((r: any) => ({
+          id: r.language_id,
+          name: r.languages?.name || "Unknown",
+        })) ?? [];
 
         setLanguagesList(list);
 
@@ -174,25 +162,29 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
         } else {
           setBook(null);
         }
-      } catch (err: any) {
-        console.error("❌ Lỗi fetchBook:", err);
+      } catch (err) {
+        console.error("fetchLanguages error:", err);
         Alert.alert("Lỗi tải dữ liệu", "Không thể tải chi tiết sách.");
       } finally {
         setLoading(false);
       }
     };
 
-    fetchBook();
+    fetchLanguages();
   }, [visible, bookId]);
 
-  // ✅ Khi đổi ngôn ngữ thì load lại sách
+  // ============================
+  // Reload book khi đổi language
+  // ============================
   useEffect(() => {
     if (selectedLanguage && bookId) {
       fetchBookByLanguage(selectedLanguage);
     }
   }, [selectedLanguage]);
 
-  // ✅ Add to favorite (đơn giản)
+  // ============================
+  // Add favorite
+  // ============================
   const handleAddFavorite = async () => {
     if (!book) return;
     try {
@@ -201,13 +193,12 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
       setFavorite(true);
       Alert.alert("Đã thêm vào yêu thích");
     } catch (err) {
-      console.error("❌ Lỗi thêm favorite:", err);
+      console.error("addFavorite error:", err);
       Alert.alert("Lỗi", "Không thể thêm vào yêu thích.");
     }
   };
 
   if (!visible || !bookId) return null;
-
   const displayBook = book || {};
 
   return (
@@ -215,12 +206,10 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
       <View style={styles.overlay}>
         <TouchableWithoutFeedback>
           <View style={styles.popupContainer}>
-            {/* Close */}
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Text style={styles.closeButtonText}>✕</Text>
             </TouchableOpacity>
 
-            {/* Content */}
             {loading ? (
               <View style={styles.loadingView}>
                 <ActivityIndicator size="large" color="#4CAF50" />
@@ -238,7 +227,6 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
               </View>
             ) : (
               <ScrollView contentContainerStyle={styles.scrollViewContent}>
-                {/* Cover */}
                 <View style={styles.coverWrap}>
                   <Image
                     source={{ uri: displayBook.cover_image }}
@@ -247,34 +235,20 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
                   />
                 </View>
 
-                {/* Title & author */}
                 <Text style={styles.title}>{displayBook.title}</Text>
-                <Text
-                  style={styles.author}
-                  onPress={() => {
-                    // nếu có link tác giả, mở; else noop
-                    if (displayBook.author_url) Linking.openURL(displayBook.author_url);
-                  }}
-                >
-                  {displayBook.author}
-                </Text>
+                <Text style={styles.author}>{displayBook.author}</Text>
 
-                {/* Language picker + favorite (row) */}
                 <View style={styles.pickerRow}>
                   <View style={styles.pickerWrapper}>
                     <Picker
                       selectedValue={selectedLanguage}
-                      onValueChange={(itemValue) => setSelectedLanguage(itemValue)}
+                      onValueChange={(v) => setSelectedLanguage(v)}
                       style={styles.languagePicker}
                       dropdownIconColor="#333"
                     >
-                      {languagesList.length === 0 ? (
-                        <Picker.Item label="English" value="en" />
-                      ) : (
-                        languagesList.map((lang) => (
-                          <Picker.Item key={lang.id} label={lang.name} value={lang.id} />
-                        ))
-                      )}
+                      {languagesList.map((lang) => (
+                        <Picker.Item key={lang.id} label={lang.name} value={lang.id} />
+                      ))}
                     </Picker>
                   </View>
 
@@ -286,142 +260,47 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
                   </TouchableOpacity>
                 </View>
 
-                {/* Read & download */}
                 <View style={styles.readDownloadRow}>
-                  <TouchableOpacity
-                    style={[styles.readButton, !displayBook.book_uuid && { opacity: 0.5 }]}
-                    onPress={handleRead}
-                    disabled={!displayBook.book_uuid}
-                  >
+                  <TouchableOpacity style={styles.readButton} onPress={handleRead}>
                     <Text style={styles.readButtonText}>📖 Read</Text>
                   </TouchableOpacity>
-
                   <TouchableOpacity style={styles.downloadButton} onPress={handleDownload}>
                     <Text style={styles.downloadButtonText}>⬇</Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* Short description */}
                 <Text style={styles.bookDescription}>
                   {displayBook.description || "Không có mô tả."}
                 </Text>
 
-                {/* Info Grid (Reading Level / Pages / Available Languages) */}
-                <View style={styles.infoGrid}>
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridValue}>{displayBook.reading_level ?? "-"}</Text>
-                    <Text style={styles.gridLabel}>Reading Level</Text>
-                  </View>
-                  <View style={styles.gridSep} />
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridValue}>{displayBook.pages ?? "-"}</Text>
-                    <Text style={styles.gridLabel}>Pages</Text>
-                  </View>
-                  <View style={styles.gridSep} />
-                  <View style={styles.gridItem}>
-                    <Text style={styles.gridValue}>{(displayBook.availableLanguages ?? languagesList)?.length ?? languagesList.length}</Text>
-                    <Text style={styles.gridLabel}>Available Languages</Text>
-                  </View>
-                </View>
-
-                {/* DETAILS SECTION - each row separated by hr */}
+                {/* Info / Details */}
                 <View style={styles.detailsContainer}>
                   <View style={styles.hr} />
-
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Publisher:</Text>
-                    <Text
-                      style={styles.detailValueLink}
-                      onPress={() => {
-                        if (displayBook.original_url) Linking.openURL(displayBook.original_url);
-                      }}
-                    >
-                      {displayBook.publisher ?? "-"}
-                    </Text>
-                  </View>
-
+                  <InfoItem label="Publisher" value={displayBook.publisher} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Illustrator:</Text>
-                    <Text style={styles.detailValue}>{displayBook.illustrator ?? "-"}</Text>
-                  </View>
-
+                  <InfoItem label="Illustrator" value={displayBook.illustrator} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Categories:</Text>
-                    <Text style={styles.detailValue}>
-                      {displayBook.categories?.length ? displayBook.categories.join(", ") : "-"}
-                    </Text>
-                  </View>
-
+                  <InfoItem label="Categories" value={displayBook.categories?.join(", ")} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Source Language:</Text>
-                    <Text style={styles.detailValue}>{displayBook.source_language ?? displayBook.source_language_id ?? "-"}</Text>
-                  </View>
-
+                  <InfoItem label="Source Language" value={displayBook.source_language} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Country of Origin:</Text>
-                    <Text style={styles.detailValue}>{displayBook.country_of_origin ?? "-"}</Text>
-                  </View>
-
+                  <InfoItem label="Country" value={displayBook.country_of_origin} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Original Url:</Text>
-                    <Text
-                      style={styles.detailValueLink}
-                      onPress={() => {
-                        if (displayBook.original_url) Linking.openURL(displayBook.original_url);
-                      }}
-                    >
-                      {displayBook.original_url ?? "-"}
-                    </Text>
-                  </View>
-
+                  <InfoItem label="Original URL" value={displayBook.original_url} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>License:</Text>
-                    <Text style={styles.detailValue}>{displayBook.license ?? "-"}</Text>
-                  </View>
-
+                  <InfoItem label="License" value={displayBook.license} />
                   <View style={styles.hr} />
-                  <View style={styles.notesRow}>
-                    <Text style={styles.detailLabel}>Notes:</Text>
-                    <Text style={styles.notesText}>{displayBook.notes ?? "-"}</Text>
-                  </View>
-
+                  <InfoItem label="Notes" value={displayBook.notes} />
                   <View style={styles.hr} />
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Status:</Text>
-                    <Text style={styles.detailValue}>{displayBook.status ?? "Complete"}</Text>
-                  </View>
-
-                  <View style={styles.hr} />
-                  <TouchableOpacity
-                    style={styles.reportRow}
-                    onPress={() => {
-                      // nếu có trang báo lỗi, mở; nếu không, alert
-                      if (displayBook.book_uuid) {
-                        // mở modal báo lỗi hoặc trang report — giữ đơn giản bằng Alert / Linking
-                        Alert.alert("Report", "Bạn muốn báo cáo sự cố với sách này?");
-                      } else {
-                        Alert.alert("Info", "Không có thông tin để báo cáo.");
-                      }
-                    }}
-                  >
-                    <Text style={styles.reportText}>Report an issue with the book</Text>
-                  </TouchableOpacity>
+                  <InfoItem label="Status" value={displayBook.status ?? "Complete"} />
                 </View>
 
-                {/* bottom padding */}
                 <View style={{ height: 40 }} />
               </ScrollView>
             )}
           </View>
         </TouchableWithoutFeedback>
 
-        {/* backdrop to close */}
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={StyleSheet.absoluteFillObject} />
         </TouchableWithoutFeedback>
@@ -431,7 +310,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 }
 
 // ==========================
-// Styles
+// CSS giữ nguyên như file bạn gửi
 // ==========================
 const styles = StyleSheet.create({
   overlay: {
@@ -469,144 +348,37 @@ const styles = StyleSheet.create({
   errorCloseButtonText: { fontWeight: "bold", color: "#333" },
 
   scrollViewContent: {
-    paddingHorizontal: "10%", // ✅ cách lề mỗi bên 10%
+    paddingHorizontal: "10%",
     paddingTop: 24,
     paddingBottom: 40,
     alignItems: "center",
   },
 
-  coverWrap: {
-    width: 160,
-    height: 220,
-    borderRadius: 8,
-    overflow: "hidden",
-    elevation: 6,
-    backgroundColor: "#f7f7f7",
-    marginBottom: 12,
-  },
+  coverWrap: { width: 160, height: 220, borderRadius: 8, overflow: "hidden", elevation: 6, backgroundColor: "#f7f7f7", marginBottom: 12 },
   coverImage: { width: "100%", height: "100%" },
 
   title: { fontSize: 20, fontWeight: "700", textAlign: "center", marginTop: 6 },
   author: { textAlign: "center", color: "#1e88e5", marginBottom: 12 },
 
-  // picker + favorite row
-  pickerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    width: "100%",
-    marginBottom: 14,
-  },
-  pickerWrapper: {
-    width: "90%", // ✅ dropdown 90%
-    borderWidth: 1,
-    borderColor: "#eee",
-    borderRadius: 8,
-    overflow: "hidden",
-    height: 48,
-    justifyContent: "center",
-    backgroundColor: "#fafafa",
-  },
+  pickerRow: { flexDirection: "row", alignItems: "center", width: "100%", marginBottom: 14 },
+  pickerWrapper: { width: "90%", borderWidth: 1, borderColor: "#eee", borderRadius: 8, overflow: "hidden", height: 48, justifyContent: "center", backgroundColor: "#fafafa" },
   languagePicker: { height: 48 },
-
-  favoriteButton: {
-    width: "10%", // ✅ favorite 10%
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#eee",
-    borderRadius: 8,
-    height: 48,
-    marginLeft: 6,
-  },
+  favoriteButton: { width: "10%", justifyContent: "center", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#eee", borderRadius: 8, height: 48, marginLeft: 6 },
   favoriteActive: { backgroundColor: "#fdecea", borderColor: "#f5b4b4" },
   favoriteText: { color: "#333", fontWeight: "600", fontSize: 20, textAlign: "center" },
 
-  readDownloadRow: {
-    flexDirection: "row",
-    width: "100%",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  readButton: {
-    width: "90%", // ✅ read 90%
-    backgroundColor: "#11813a",
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: "center",
-  },
+  readDownloadRow: { flexDirection: "row", width: "100%", alignItems: "center", marginBottom: 16 },
+  readButton: { width: "90%", backgroundColor: "#11813a", paddingVertical: 12, borderRadius: 8, alignItems: "center" },
   readButtonText: { color: "#fff", fontWeight: "700" },
-
-  downloadButton: {
-    width: "10%", // ✅ download 10%
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    height: 48,
-    marginLeft: 6,
-  },
+  downloadButton: { width: "10%", justifyContent: "center", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#ddd", borderRadius: 8, height: 48, marginLeft: 6 },
   downloadButtonText: { color: "#333", fontSize: 18 },
 
-  bookDescription: {
-    fontSize: 14,
-    textAlign: "center",
-    color: "#666",
-    marginBottom: 18,
-    width: "100%",
-  },
+  bookDescription: { fontSize: 14, textAlign: "center", color: "#666", marginBottom: 18, width: "100%" },
 
-  // info grid
-  infoGrid: {
-    width: "100%",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-    paddingBottom: 16,
-    marginBottom: 18,
-  },
-  gridItem: { flex: 1, alignItems: "center" },
-  gridValue: { fontSize: 28, fontWeight: "800" },
-  gridLabel: { fontSize: 12, color: "#888", marginTop: 8 },
-  gridSep: { width: 1, height: 48, backgroundColor: "#eee" },
-
-  // details
-  detailsContainer: {
-    width: "100%",
-    paddingVertical: 8,
-  },
+  detailsContainer: { width: "100%", paddingVertical: 8 },
   hr: { height: 1, backgroundColor: "#eee", marginVertical: 12 },
 
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "flex-start",
-    alignItems: "center",
-    paddingVertical: 4,
-  },
-  detailLabel: { fontSize: 14, color: "#333", width: 140 },
-  detailValue: { fontSize: 14, color: "#555", flex: 1 },
-  detailValueLink: { fontSize: 14, color: "#1e88e5", flex: 1, textDecorationLine: "underline" },
-
-  notesRow: {
-    paddingVertical: 4,
-  },
-  notesText: { color: "#555", fontSize: 14, lineHeight: 20 },
-
-  infoRow: {
-    width: "100%",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-  },
+  infoRow: { width: "100%", flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 },
   infoLabel: { fontSize: 12, color: "#777" },
   infoValue: { fontSize: 14, color: "#333", fontWeight: "600" },
-
-  reportRow: {
-    paddingVertical: 8,
-  },
-  reportText: { color: "#1e88e5", textDecorationLine: "underline" },
 });

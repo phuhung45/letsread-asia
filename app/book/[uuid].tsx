@@ -9,10 +9,14 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { getBookWithLanguages } from "../../lib/queries";
-import { Ionicons } from "@expo/vector-icons";
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../contexts/AuthContext";
 
 export default function BookDetail({ route }) {
   const { uuid } = route.params;
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+
   const [book, setBook] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [selectedLang, setSelectedLang] = useState("");
@@ -30,6 +34,41 @@ export default function BookDetail({ route }) {
     }
     fetchBook();
   }, [uuid]);
+
+  const handleReadPress = async () => {
+    console.log("=== DEBUG START ===");
+    console.log("Current userId:", userId);
+    console.log("Book ID:", book?.id);
+    console.log("SelectedLang:", selectedLang);
+
+    if (!userId || !book || !selectedLang) {
+      console.warn("Missing userId, book or selectedLang");
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from("user_reads")
+        .upsert(
+          [
+            {
+              user_id: userId,
+              book_id: book.id,
+              language_id: selectedLang,
+              progress: 0,
+            },
+          ],
+          { onConflict: ["user_id", "book_id", "language_id"], returning: "representation" }
+        );
+
+      console.log("Upsert data:", data);
+      console.log("Upsert error:", error);
+    } catch (err) {
+      console.error("Unexpected error in upsert:", err);
+    }
+
+    console.log("=== DEBUG END ===");
+  };
 
   if (loading)
     return (
@@ -64,31 +103,18 @@ export default function BookDetail({ route }) {
             selectedValue={selectedLang}
             onValueChange={(value) => setSelectedLang(value)}
           >
-            {book.languages && book.languages.length > 0 ? (
-              book.languages.map((lang: any) => (
-                <Picker.Item
-                  key={lang.id}
-                  label={lang.name}
-                  value={lang.id.toString()}
-                />
-              ))
-            ) : (
-              <Picker.Item
-                label="No language available"
-                value=""
-                color="#999"
-              />
-            )}
+            {book.languages?.map((lang: any) => (
+              <Picker.Item key={lang.id} label={lang.name} value={lang.id.toString()} />
+            ))}
           </Picker>
         </View>
 
-        <TouchableOpacity className="bg-green-600 w-full py-2 mt-4 rounded-xl">
+        <TouchableOpacity
+          className="bg-green-600 w-full py-2 mt-4 rounded-xl"
+          onPress={handleReadPress}
+        >
           <Text className="text-center text-white font-semibold">Read</Text>
         </TouchableOpacity>
-
-        <Text className="mt-4 text-center text-gray-700">
-          {book.description || "No description available."}
-        </Text>
       </View>
     </ScrollView>
   );
