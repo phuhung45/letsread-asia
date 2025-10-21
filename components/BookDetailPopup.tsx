@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import { supabase } from "../lib/supabase";
-import { router } from "expo-router"; // ✅ dùng expo-router để điều hướng nội bộ
+import { router } from "expo-router";
+import { useAuth } from "../contexts/AuthContext"; // ✅ Lấy session user
 
 interface Props {
   visible?: boolean;
@@ -24,22 +25,87 @@ interface Props {
 
 const SITE_URL = "http://localhost:8081";
 
-const InfoItem = ({ label, value }: { label: string | number | null | undefined; }) => (
+const InfoItem = ({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | number | null | undefined;
+}) => (
   <View style={styles.infoRow}>
     <Text style={styles.infoLabel}>{label}</Text>
     <Text style={styles.infoValue}>{value ?? "-"}</Text>
   </View>
 );
 
-export default function BookDetailPopup({ visible = false, bookId, onClose }: Props) {
+export default function BookDetailPopup({
+  visible = false,
+  bookId,
+  onClose,
+}: Props) {
+  const { session } = useAuth();
   const [book, setBook] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState<string | null>(null);
-  const [languagesList, setLanguagesList] = useState<{ id: string; name: string }[]>([]);
-  const [favorite, setFavorite] = useState(false);
+  const [languagesList, setLanguagesList] = useState<
+    { id: string; name: string }[]
+  >([]);
+  const [isFavorite, setIsFavorite] = useState(false);
 
   // ============================
-  // Read book → điều hướng nội bộ
+  // 🔍 Check if book is favorite
+  // ============================
+  const checkFavorite = async (bookInternalId: number) => {
+    if (!session?.user?.id || !bookInternalId) return;
+
+    const { data, error } = await supabase
+      .from("user_favorites")
+      .select("id")
+      .eq("user_id", session.user.id)
+      .eq("book_id", bookInternalId)
+      .maybeSingle();
+
+    if (!error && data) setIsFavorite(true);
+    else setIsFavorite(false);
+  };
+
+  // ============================
+  // ❤️ Toggle favorite
+  // ============================
+  const handleToggleFavorite = async () => {
+    if (!session?.user?.id || !book?.id) {
+      Alert.alert("Vui lòng đăng nhập để thêm yêu thích");
+      return;
+    }
+
+    try {
+      if (isFavorite) {
+        const { error } = await supabase
+          .from("user_favorites")
+          .delete()
+          .eq("user_id", session.user.id)
+          .eq("book_id", book.id);
+        if (error) throw error;
+
+        setIsFavorite(false);
+        Alert.alert("Đã xóa khỏi danh sách yêu thích");
+      } else {
+        const { error } = await supabase
+          .from("user_favorites")
+          .insert([{ user_id: session.user.id, book_id: book.id }]);
+        if (error) throw error;
+
+        setIsFavorite(true);
+        Alert.alert("Đã thêm vào danh sách yêu thích");
+      }
+    } catch (err) {
+      console.error("handleToggleFavorite error:", err);
+      Alert.alert("Lỗi", "Không thể cập nhật danh sách yêu thích.");
+    }
+  };
+
+  // ============================
+  // 🧭 Read Book
   // ============================
   const handleRead = () => {
     if (!book?.book_uuid || !selectedLanguage) {
@@ -48,7 +114,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
     }
     try {
       router.push(`/read/${book.book_uuid}?language=${selectedLanguage}`);
-      if (onClose) onClose();
+      onClose?.();
     } catch (err) {
       console.error("Router push error:", err);
       const url = `${SITE_URL}/read/${book.book_uuid}?bookLang=${selectedLanguage}`;
@@ -59,7 +125,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   };
 
   // ============================
-  // Download EPUB
+  // ⬇ Download EPUB
   // ============================
   const handleDownload = async () => {
     if (!book?.book_uuid || !selectedLanguage) {
@@ -96,7 +162,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   };
 
   // ============================
-  // Fetch book by language
+  // Fetch Book Data
   // ============================
   const fetchBookByLanguage = async (language_id: string) => {
     if (!bookId) return;
@@ -116,9 +182,12 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
         .select("categories(name)")
         .eq("book_id", bookData.id);
 
-      const categories = catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
+      const categories =
+        catData?.map((c: any) => c.categories?.name).filter(Boolean) ?? [];
 
       setBook({ ...bookData, categories });
+
+      await checkFavorite(bookData.id); // ✅ kiểm tra yêu thích
     } catch (err) {
       console.error("fetchBookByLanguage error:", err);
       Alert.alert("Lỗi tải dữ liệu", "Không thể tải chi tiết sách.");
@@ -128,7 +197,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   };
 
   // ============================
-  // Fetch languages list
+  // Fetch Languages List
   // ============================
   useEffect(() => {
     if (!visible || !bookId) {
@@ -148,10 +217,11 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 
         if (langError) throw langError;
 
-        const list = langRecords?.map((r: any) => ({
-          id: r.language_id,
-          name: r.languages?.name || "Unknown",
-        })) ?? [];
+        const list =
+          langRecords?.map((r: any) => ({
+            id: r.language_id,
+            name: r.languages?.name || "Unknown",
+          })) ?? [];
 
         setLanguagesList(list);
 
@@ -174,29 +244,13 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
   }, [visible, bookId]);
 
   // ============================
-  // Reload book khi đổi language
+  // Reload when change language
   // ============================
   useEffect(() => {
     if (selectedLanguage && bookId) {
       fetchBookByLanguage(selectedLanguage);
     }
   }, [selectedLanguage]);
-
-  // ============================
-  // Add favorite
-  // ============================
-  const handleAddFavorite = async () => {
-    if (!book) return;
-    try {
-      const { error } = await supabase.from("favorites").insert([{ book_id: book.id }]);
-      if (error) throw error;
-      setFavorite(true);
-      Alert.alert("Đã thêm vào yêu thích");
-    } catch (err) {
-      console.error("addFavorite error:", err);
-      Alert.alert("Lỗi", "Không thể thêm vào yêu thích.");
-    }
-  };
 
   if (!visible || !bookId) return null;
   const displayBook = book || {};
@@ -253,10 +307,12 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
                   </View>
 
                   <TouchableOpacity
-                    style={[styles.favoriteButton, favorite && styles.favoriteActive]}
-                    onPress={handleAddFavorite}
+                    style={[styles.favoriteButton, isFavorite && styles.favoriteActive]}
+                    onPress={handleToggleFavorite}
                   >
-                    <Text style={styles.favoriteText}>{favorite ? "♥ Favorited" : "♡"}</Text>
+                    <Text style={styles.favoriteText}>
+                      {isFavorite ? "♥ Favorited" : "♡ Favorite"}
+                    </Text>
                   </TouchableOpacity>
                 </View>
 
@@ -273,14 +329,16 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
                   {displayBook.description || "Không có mô tả."}
                 </Text>
 
-                {/* Info / Details */}
                 <View style={styles.detailsContainer}>
                   <View style={styles.hr} />
                   <InfoItem label="Publisher" value={displayBook.publisher} />
                   <View style={styles.hr} />
                   <InfoItem label="Illustrator" value={displayBook.illustrator} />
                   <View style={styles.hr} />
-                  <InfoItem label="Categories" value={displayBook.categories?.join(", ")} />
+                  <InfoItem
+                    label="Categories"
+                    value={displayBook.categories?.join(", ")}
+                  />
                   <View style={styles.hr} />
                   <InfoItem label="Source Language" value={displayBook.source_language} />
                   <View style={styles.hr} />
@@ -300,7 +358,6 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
             )}
           </View>
         </TouchableWithoutFeedback>
-
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={StyleSheet.absoluteFillObject} />
         </TouchableWithoutFeedback>
@@ -310,7 +367,7 @@ export default function BookDetailPopup({ visible = false, bookId, onClose }: Pr
 }
 
 // ==========================
-// CSS giữ nguyên như file bạn gửi
+// 💅 CSS giữ nguyên
 // ==========================
 const styles = StyleSheet.create({
   overlay: {
@@ -365,7 +422,7 @@ const styles = StyleSheet.create({
   languagePicker: { height: 48 },
   favoriteButton: { width: "10%", justifyContent: "center", alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#eee", borderRadius: 8, height: 48, marginLeft: 6 },
   favoriteActive: { backgroundColor: "#fdecea", borderColor: "#f5b4b4" },
-  favoriteText: { color: "#333", fontWeight: "600", fontSize: 20, textAlign: "center" },
+  favoriteText: { color: "#333", fontWeight: "600", fontSize: 18, textAlign: "center" },
 
   readDownloadRow: { flexDirection: "row", width: "100%", alignItems: "center", marginBottom: 16 },
   readButton: { width: "90%", backgroundColor: "#11813a", paddingVertical: 12, borderRadius: 8, alignItems: "center" },

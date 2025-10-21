@@ -24,19 +24,19 @@ export default function ReadBook() {
   const { session } = useAuth();
   const userId = session?.user?.id;
 
-  const [bookTitle, setBookTitle] = useState<string>("Untitled Book");
-  const [languages, setLanguages] = useState<{ id: string; name: string }[]>([]);
-  const [selectedLang, setSelectedLang] = useState<string>((lang as string) || "");
+  const [bookTitle, setBookTitle] = useState("Untitled Book");
+  const [languages, setLanguages] = useState<{ id: string; name: string; title: string }[]>([]);
+  const [selectedLang, setSelectedLang] = useState((lang as string) || "");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [epubUrl, setEpubUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState(true);
 
-  const [progress, setProgress] = useState<number>(0);
+  const [progress, setProgress] = useState(0);
   const progressRef = useRef(0);
-
+  const lastUpdateTs = useRef(0);
   const [showDownloadPopup, setShowDownloadPopup] = useState(false);
 
-  // 🔹 Lấy danh sách ngôn ngữ
+  // ---------- Fetch languages ----------
   useEffect(() => {
     if (!id) return;
     (async () => {
@@ -45,7 +45,10 @@ export default function ReadBook() {
         .select("language_id, title, languages(name)")
         .eq("book_id", id);
 
-      if (error) return console.error("Error fetching languages:", error);
+      if (error) {
+        console.error("❌ Error fetching languages:", error);
+        return;
+      }
 
       if (data && data.length > 0) {
         const langs = data.map((item: any) => ({
@@ -53,19 +56,17 @@ export default function ReadBook() {
           name: item.languages?.name || item.language_id,
           title: item.title,
         }));
-
         setLanguages(langs);
 
         let defaultLang = (lang as string) || langs[0].id;
         if (!langs.some((l) => l.id === defaultLang)) defaultLang = langs[0].id;
-
         setSelectedLang(defaultLang);
         setBookTitle(langs.find((l) => l.id === defaultLang)?.title || "Untitled Book");
       }
     })();
   }, [id, lang]);
 
-  // 🔹 Lấy file PDF/EPUB
+  // ---------- Fetch content ----------
   useEffect(() => {
     if (!id || !selectedLang) return;
     (async () => {
@@ -77,104 +78,155 @@ export default function ReadBook() {
         .eq("language_id", selectedLang)
         .maybeSingle();
 
-      if (error) console.error("Error fetching content:", error);
+      if (error) console.error("❌ Error fetching content:", error);
 
       setPdfUrl(data?.pdf_url || null);
       setEpubUrl(data?.epub_url || null);
       setBookTitle(data?.title || "Untitled Book");
       setLoading(false);
 
-      fetchProgress();
-      insertUserRead(); // 🔹 Thêm row vào user_reads khi mở sách
+      await fetchProgress();
     })();
   }, [selectedLang, id]);
 
-  // 🔹 Lấy progress hiện tại
+  // ---------- Fetch progress ----------
   const fetchProgress = async () => {
-    if (!userId || !id || !selectedLang) return;
-    try {
-      const { data } = await supabase
-        .from("user_reads")
-        .select("progress")
-        .eq("user_id", userId)
-        .eq("book_id", id)
-        .eq("language_id", selectedLang)
-        .maybeSingle();
-      const prog = data?.progress ?? 0;
+    if (!userId || !id) return;
+    console.log("🔍 Fetching progress for user:", userId, "book:", id);
+    const { data, error } = await supabase
+      .from("user_reads")
+      .select("progress")
+      .eq("user_id", userId)
+      .eq("book_id", id)
+      .maybeSingle();
+
+    if (error) {
+      console.error("❌ fetchProgress error:", error);
+      return;
+    }
+
+    if (data) {
+      const prog = Number(data.progress ?? 0);
+      console.log("✅ Current progress (fetched):", prog);
       setProgress(prog);
       progressRef.current = prog;
-    } catch (err) {
-      console.error("Error fetching progress:", err);
+    } else {
+      console.log("ℹ️ No progress found → insert new row");
+      await insertUserRead();
+      setProgress(0);
+      progressRef.current = 0;
     }
   };
 
-  // 🔹 Insert row vào user_reads nếu chưa có
+  // ---------- Insert initial user_reads ----------
   const insertUserRead = async () => {
-    if (!userId || !id || !selectedLang) return;
-    try {
-      const { data, error } = await supabase
-        .from("user_reads")
-        .upsert(
-          [
-            {
-              user_id: userId,
-              book_id: id,
-              language_id: selectedLang,
-              progress: 0,
-            },
-          ],
-          { onConflict: ["user_id", "book_id", "language_id"] }
-        );
-
-      console.log("Insert/upsert user_reads:", { data, error });
-    } catch (err) {
-      console.error("Error inserting user_reads:", err);
-    }
+    if (!userId || !id) return;
+    const { error } = await supabase.from("user_reads").insert([
+      {
+        user_id: userId,
+        book_id: id,
+        progress: 0,
+      },
+    ]);
+    if (error) console.error("❌ Insert error:", error);
+    else console.log("✅ Inserted new user_reads record");
   };
 
-  // 🔹 Cập nhật progress realtime
+  // ---------- Update progress ----------
   const updateProgress = async (newProgress: number) => {
-    setProgress(newProgress);
-    progressRef.current = newProgress;
-    if (!userId || !id || !selectedLang) return;
-    try {
-      const { data, error } = await supabase
-        .from("user_reads")
-        .upsert(
-          [
-            {
-              user_id: userId,
-              book_id: id,
-              language_id: selectedLang,
-              progress: newProgress,
-            },
-          ],
-          { onConflict: ["user_id", "book_id", "language_id"] }
-        );
-      if (error) console.error("Error updating progress:", error);
-      else console.log("Progress updated:", newProgress);
-    } catch (err) {
-      console.error("Error updating progress:", err);
+    const np = Math.max(0, Math.min(100, Math.round(newProgress)));
+    const prev = progressRef.current ?? 0;
+    if (Math.abs(np - prev) < 1) return;
+
+    const now = Date.now();
+    if (now - lastUpdateTs.current < 1000) {
+      setProgress(np);
+      progressRef.current = np;
+      return;
+    }
+    lastUpdateTs.current = now;
+
+    if (!userId || !id) return;
+
+    console.log(`⬆️ Upserting progress: ${np}% for user=${userId}, book=${id}`);
+    const { error } = await supabase
+      .from("user_reads")
+      .upsert(
+        [
+          {
+            user_id: userId,
+            book_id: id,
+            progress: np,
+          },
+        ],
+        { onConflict: "user_id,book_id" } // 🔥 chỉ 1 bản ghi duy nhất / người / sách
+      );
+
+    if (error) console.error("❌ Upsert error:", error);
+    else {
+      console.log("✅ Progress updated to:", np);
+      setProgress(np);
+      progressRef.current = np;
     }
   };
 
-  // 🔹 Nhận progress từ WebView
+  // ---------- PDF.js HTML (mobile) ----------
+  const makePdfJsHTML = (pdfUrlStr: string) => `
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+html,body{height:100%;margin:0;padding:0;background:#fff;}
+#viewerContainer{height:100vh;overflow:auto;}
+canvas{display:block;margin:0 auto 8px;}
+</style>
+</head>
+<body>
+<div id="viewerContainer"></div>
+<script src="https://unpkg.com/pdfjs-dist@3.10.116/build/pdf.min.js"></script>
+<script>
+  const url = '${pdfUrlStr.replace(/'/g, "%27")}';
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.10.116/build/pdf.worker.min.js';
+  let pdfDoc = null;
+  const container = document.getElementById('viewerContainer');
+  function renderPage(num){
+    pdfDoc.getPage(num).then(p=>{
+      const v = p.getViewport({scale:1.2});
+      const c = document.createElement('canvas');
+      c.width=v.width;c.height=v.height;
+      const ctx=c.getContext('2d');
+      p.render({canvasContext:ctx,viewport:v}).promise.then(()=>container.appendChild(c));
+    });
+  }
+  function renderAll(){
+    for(let i=1;i<=pdfDoc.numPages;i++) renderPage(i);
+  }
+  function sendProgress(){
+    const st=container.scrollTop,sh=container.scrollHeight-container.clientHeight;
+    const prog=sh>0?Math.floor(st/sh*100):0;
+    window.ReactNativeWebView?.postMessage(String(prog));
+  }
+  let throttled=false;
+  container.addEventListener('scroll',()=>{if(!throttled){throttled=true;sendProgress();setTimeout(()=>throttled=false,800);}});
+  pdfjsLib.getDocument(url).promise.then(pdf=>{pdfDoc=pdf;renderAll();sendProgress();});
+</script>
+</body>
+</html>
+`;
+
   const handleWebViewMessage = (event: any) => {
-    const prog = Number(event.nativeEvent.data);
-    if (!isNaN(prog) && prog >= 0 && prog <= 100) {
-      updateProgress(prog);
-    }
+    const data = event.nativeEvent?.data;
+    const prog = Number(data);
+    if (!isNaN(prog)) updateProgress(prog);
   };
 
-  // 🔹 Popup download
-  const handleDownload = () => {
-    if (!pdfUrl && !epubUrl) return;
-    setShowDownloadPopup(true);
-  };
-
+  // ---------- Download ----------
+  const handleDownload = () => setShowDownloadPopup(true);
   const openFile = (url: string) => {
     if (Platform.OS === "web") window.open(url, "_blank");
-    else Linking.openURL(url).catch(() => alert("Không thể mở file."));
+    else Linking.openURL(url);
     setShowDownloadPopup(false);
   };
 
@@ -182,10 +234,7 @@ export default function ReadBook() {
     <View style={styles.header}>
       <TouchableOpacity
         style={styles.backBtn}
-        onPress={() => {
-          if (router.canGoBack()) router.back();
-          else router.replace("/");
-        }}
+        onPress={() => (router.canGoBack() ? router.back() : router.replace("/"))}
       >
         <Ionicons name="arrow-back" size={22} color="#007AFF" />
       </TouchableOpacity>
@@ -248,16 +297,6 @@ export default function ReadBook() {
     </Modal>
   );
 
-  if (loading)
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" />
-      </View>
-    );
-
-  const windowWidth = Dimensions.get("window").width;
-  const windowHeight = Dimensions.get("window").height;
-
   const ProgressBar = () => (
     <View style={styles.progressBarContainer}>
       <View style={[styles.progressBar, { width: `${progress}%` }]} />
@@ -265,37 +304,40 @@ export default function ReadBook() {
     </View>
   );
 
+  const windowWidth = Dimensions.get("window").width;
+  const windowHeight = Dimensions.get("window").height;
+
   return (
     <View style={{ flex: 1 }}>
       <Header />
       <ProgressBar />
       <DownloadPopup />
 
-      {(Platform.OS === "android" || Platform.OS === "ios") && pdfUrl && (
-        <WebView
-          originWhitelist={["*"]}
-          source={{ uri: pdfUrl }}
-          style={{ flex: 1, width: windowWidth, height: windowHeight }}
-          onMessage={handleWebViewMessage}
-          startInLoadingState
-          renderLoading={() => (
-            <View style={styles.center}>
-              <ActivityIndicator size="large" />
-            </View>
+      {loading ? (
+        <View style={styles.center}>
+          <ActivityIndicator size="large" />
+        </View>
+      ) : (
+        <>
+          {(Platform.OS === "android" || Platform.OS === "ios") && pdfUrl && (
+            <WebView
+              originWhitelist={["*"]}
+              source={{ html: makePdfJsHTML(pdfUrl) }}
+              style={{ flex: 1, width: windowWidth, height: windowHeight }}
+              onMessage={handleWebViewMessage}
+              javaScriptEnabled
+              domStorageEnabled
+              startInLoadingState
+            />
           )}
-        />
-      )}
-
-      {Platform.OS === "web" && pdfUrl && (
-        <iframe
-          title="pdf-viewer"
-          src={`https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(
-            pdfUrl
-          )}`}
-          width="90%"
-          height="92%"
-          style={{ border: "none", borderRadius: 8 }}
-        />
+          {Platform.OS === "web" && pdfUrl && (
+            <iframe
+              title="pdf"
+              src={`https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(pdfUrl)}`}
+              style={{ width: "100%", height: "calc(100vh - 140px)", border: "none" }}
+            />
+          )}
+        </>
       )}
     </View>
   );
@@ -314,14 +356,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#eee",
   },
   backBtn: { paddingRight: 8 },
-  left: { flex: 1, alignItems: "flex-start", paddingRight: 10 },
+  left: { flex: 1 },
   centerHeader: { flex: 1, alignItems: "center" },
   right: { flex: 1, alignItems: "flex-end" },
-  title: { fontSize: 18, fontWeight: "600", color: "#222", maxWidth: 180 },
+  title: { fontSize: 18, fontWeight: "600", color: "#222" },
   pickerWrapper: {
     width: "70%",
     borderRadius: 8,
-    overflow: "hidden",
     backgroundColor: "#fafafa",
     borderWidth: 1,
     borderColor: "#eee",

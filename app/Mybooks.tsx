@@ -1,230 +1,181 @@
-import { router } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  FlatList,
-  Image,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
   View,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  Text,
   ActivityIndicator,
+  StyleSheet,
 } from "react-native";
-import { useAuth } from "../contexts/AuthContext";
 import { supabase } from "../lib/supabase";
-import Header from "../components/Header";
+import BookDetailPopup from "../components/BookDetailPopup";
+import { useAuth } from "../contexts/AuthContext";
+import Header from "../components/Header"; // ✅ import header
+import Footer from "../components/Footer"; // ✅ import footer
 
-export default function MyBookScreen() {
+export default function MyBooks() {
   const { session } = useAuth();
-  const [readBooks, setReadBooks] = useState<any[]>([]);
   const [favBooks, setFavBooks] = useState<any[]>([]);
+  const [readBooks, setReadBooks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedBookId, setSelectedBookId] = useState<string | null>(null);
+  const [popupVisible, setPopupVisible] = useState(false);
 
   useEffect(() => {
-    if (!session) {
-      router.replace("/Profile");
-      return;
-    }
+    if (!session?.user?.id) return;
 
-    const fetchData = async () => {
+    const fetchMyBooks = async () => {
+      setLoading(true);
       try {
-        setLoading(true);
-
-        // 1️⃣ Lấy sách đã đọc cùng progress
-        const { data: reads, error: readError } = await supabase
-          .from("user_reads")
-          .select(`
-            progress,
-            books(
-              id,
-              book_uuid,
-              title,
-              author,
-              cover_image
-            )
-          `)
-          .eq("user_id", session.user.id);
-
-        if (readError) console.error("Error loading readBooks:", readError);
-
-        // 2️⃣ Lấy sách yêu thích (không cần progress)
-        const { data: favs, error: favError } = await supabase
+        // ✅ Favorite books
+        const { data: favData, error: favErr } = await supabase
           .from("user_favorites")
-          .select(`
-            books(
-              id,
-              book_uuid,
-              title,
-              author,
-              cover_image
-            )
-          `)
+          .select("books(*)")
           .eq("user_id", session.user.id);
 
-        if (favError) console.error("Error loading favBooks:", favError);
+        if (favErr) throw favErr;
+        const favorites = favData.map((b: any) => b.books).filter(Boolean);
+        setFavBooks(favorites);
 
-        // 3️⃣ Map progress từ user_reads vào favBooks
-        const favsWithProgress = (favs || []).map((fav) => {
-          const read = (reads || []).find(
-            (r) => r.books.id === fav.books.id
-          );
-          return { ...fav, progress: read?.progress ?? 0 };
-        });
+        // ✅ Read books
+        const { data: readData, error: readErr } = await supabase
+          .from("user_reads")
+          .select("books(*)")
+          .eq("user_id", session.user.id);
 
-        setReadBooks(reads || []);
-        setFavBooks(favsWithProgress);
+        if (readErr) throw readErr;
+        const reads = readData.map((b: any) => b.books).filter(Boolean);
+        setReadBooks(reads);
       } catch (err) {
-        console.error("Unexpected error:", err);
+        console.error("fetchMyBooks error:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    fetchMyBooks();
   }, [session]);
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Header title="My Books" />
-        <ActivityIndicator size="large" color="#4CAF50" style={{ marginTop: 120 }} />
-      </View>
-    );
-  }
+  const handleBookPress = (bookUuid: string) => {
+    console.log("📖 Open popup for:", bookUuid);
+    setSelectedBookId(bookUuid);
+    setPopupVisible(true);
+  };
 
   return (
-    <View style={styles.container}>
-      <Header title="My Books" />
+    <View style={{ flex: 1, backgroundColor: "#f9f9f9" }}>
+      {/* ✅ Header */}
+      <Header title="My Library" />
 
-      <View style={{ marginTop: 100, paddingHorizontal: 16 }}>
-        <Text style={styles.sectionTitle}>📖 Books You’ve Read</Text>
-        {readBooks.length === 0 ? (
-          <Text style={styles.emptyText}>No books read yet.</Text>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 80 }}>
+        <Text style={styles.sectionTitle}>❤️ Favorite Books</Text>
+
+        {loading ? (
+          <ActivityIndicator size="large" color="#4CAF50" style={{ marginTop: 40 }} />
+        ) : favBooks.length === 0 ? (
+          <Text style={styles.emptyText}>Bạn chưa thêm sách nào vào yêu thích.</Text>
         ) : (
-          <FlatList
-            data={readBooks}
-            keyExtractor={(item) => String(item.books.id)}
-            renderItem={({ item }) => (
-              <BookItem book={item.books} progress={item.progress ?? 0} />
-            )}
-          />
+          <View style={styles.booksContainer}>
+            {favBooks.map((book) => (
+              <TouchableOpacity
+                key={book.book_uuid}
+                style={styles.bookCard}
+                onPress={() => handleBookPress(book.book_uuid)}
+              >
+                <Image
+                  source={{ uri: book.cover_image }}
+                  style={styles.coverImage}
+                  resizeMode="cover"
+                />
+                <Text numberOfLines={2} style={styles.bookTitle}>
+                  {book.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
 
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>❤️ Favorite Books</Text>
-        {favBooks.length === 0 ? (
-          <Text style={styles.emptyText}>No favorite books yet.</Text>
+        <Text style={[styles.sectionTitle, { marginTop: 32 }]}>📖 Read Books</Text>
+
+        {loading ? (
+          <ActivityIndicator size="large" color="#4CAF50" style={{ marginTop: 40 }} />
+        ) : readBooks.length === 0 ? (
+          <Text style={styles.emptyText}>Bạn chưa đọc sách nào.</Text>
         ) : (
-          <FlatList
-            data={favBooks}
-            keyExtractor={(item) => String(item.books.id)}
-            renderItem={({ item }) => (
-              <BookItem book={item.books} progress={item.progress ?? 0} />
-            )}
-          />
+          <View style={styles.booksContainer}>
+            {readBooks.map((book) => (
+              <TouchableOpacity
+                key={book.book_uuid}
+                style={styles.bookCard}
+                onPress={() => handleBookPress(book.book_uuid)}
+              >
+                <Image
+                  source={{ uri: book.cover_image }}
+                  style={styles.coverImage}
+                  resizeMode="cover"
+                />
+                <Text numberOfLines={2} style={styles.bookTitle}>
+                  {book.title}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
-      </View>
+      </ScrollView>
+
+      {/* ✅ Footer */}
+      <Footer activeTab="mybooks" />
+
+      {/* ✅ Popup hiển thị khi click */}
+      {selectedBookId && (
+        <BookDetailPopup
+          visible={popupVisible}
+          bookId={selectedBookId}
+          onClose={() => setPopupVisible(false)}
+        />
+      )}
     </View>
   );
 }
 
-function BookItem({ book, progress }) {
-  const renderProgress = () => {
-    if (progress === 0) return <Text style={styles.newText}>New</Text>;
-    if (progress === 100) return <Text style={styles.tick}>✔️</Text>;
-
-    return (
-      <View style={styles.progressBarContainer}>
-        <View style={[styles.progressBar, { width: `${progress}%` }]} />
-        <Text style={styles.progressText}>{progress}%</Text>
-      </View>
-    );
-  };
-
-  return (
-    <TouchableOpacity
-      style={styles.bookItem}
-      onPress={() => router.push(`/book/${book.book_uuid}`)}
-    >
-      <Image source={{ uri: book.cover_image }} style={styles.cover} />
-      <View style={{ flex: 1 }}>
-        <Text style={styles.bookTitle}>{book.title}</Text>
-        {book.author && <Text style={styles.author}>{book.author}</Text>}
-        {renderProgress()}
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: "#fff",
-    alignItems: "center",
-  },
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 22,
     fontWeight: "700",
-    marginBottom: 10,
+    textAlign: "center",
+    marginVertical: 16,
   },
   emptyText: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 10,
+    textAlign: "center",
+    color: "#999",
+    marginTop: 40,
   },
-  bookItem: {
+  booksContainer: {
     flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 8,
-    backgroundColor: "#f9f9f9",
-    borderRadius: 10,
-    padding: 10,
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 16,
+    paddingBottom: 40,
   },
-  cover: {
-    width: 60,
-    height: 80,
+  bookCard: {
+    width: 140,
+    alignItems: "center",
+    backgroundColor: "#fff",
     borderRadius: 8,
-    marginRight: 10,
-    backgroundColor: "#ddd",
+    overflow: "hidden",
+    elevation: 4,
+    paddingBottom: 8,
+  },
+  coverImage: {
+    width: "100%",
+    height: 200,
   },
   bookTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
-  },
-  author: {
-    fontSize: 13,
-    color: "#777",
-    marginTop: 4,
-  },
-  progressBarContainer: {
-    height: 20,
-    backgroundColor: "#eee",
-    borderRadius: 10,
-    overflow: "hidden",
+    textAlign: "center",
     marginTop: 6,
-    position: "relative",
-  },
-  progressBar: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
-  },
-  progressText: {
-    position: "absolute",
-    alignSelf: "center",
-    color: "#fff",
-    fontWeight: "700",
-  },
-  newText: {
-    marginTop: 6,
-    color: "#FF9800",
-    fontWeight: "700",
-  },
-  tick: {
-    marginTop: 6,
-    color: "#4CAF50",
-    fontWeight: "700",
-    fontSize: 16,
+    paddingHorizontal: 6,
   },
 });

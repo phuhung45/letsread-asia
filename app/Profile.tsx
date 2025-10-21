@@ -3,6 +3,7 @@ import { Image, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { router } from "expo-router";
 import { useAuth } from "../contexts/AuthContext";
 import Header from "../components/Header";
+import Footer from "../components/Footer";
 
 export default function ProfileScreen() {
   const { session } = useAuth();
@@ -45,6 +46,7 @@ export default function ProfileScreen() {
           ))}
         </View>
       </View>
+      <Footer activeTab="profile" />
     </View>
   );
 }
@@ -94,6 +96,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     marginTop: 20,
     gap: 10,
+    marginBottom:200,
   },
   dayCircle: {
     width: 36,
