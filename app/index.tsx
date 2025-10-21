@@ -129,7 +129,7 @@ export default function Index() {
       ) : (
         <ScrollView contentContainerStyle={{ paddingTop: 0 }}>
           <ImageSlider />
-          <SearchBar />
+          <SearchBar onResults={(books) => setAllBooks(books)} />
 
           {categoryList.map((cat) => {
             const page = pageIndex[cat.id] || 0;
